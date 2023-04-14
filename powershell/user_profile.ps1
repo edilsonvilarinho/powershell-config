@@ -21,7 +21,15 @@ Import-Module PSReadLine
 #Import-Module oh-my-posh
 $omp_config = Join-Path $PSScriptRoot ".\takuya.omp.json"
 #oh-my-posh --init --shell pwsh --config $omp_config | Invoke-Expression
-oh-my-posh init pwsh --config $omp_config | Invoke-Expression
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope CurrentUser
+try {
+   oh-my-posh init pwsh --config $omp_config | Invoke-Expression
+}
+catch {
+    winget install JanDeDobbeleer.OhMyPosh
+    oh-my-posh init pwsh --config $omp_config | Invoke-Expression
+}
+
 
 #Import-Module -Name Terminal-Icons
 
