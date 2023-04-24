@@ -35,5 +35,5 @@ Instale o powershell : https://www.microsoft.com/store/productId/9MZ1SNWT0N5D
  - Alterar o arquivo user_profile.ps1 do caminho <pasta-usuario>\.config\powershell colocando o arquivo do thema escolhido <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/abrir-arquivo-userprofileps1.png" width="1000"/>
  
  - Referência 
-  - Canal Youtube devaslife : https://www.youtube.com/watch?v=5-aK2_WwrmM&t=2056s&ab_channel=devaslife
+   - Canal Youtube devaslife : https://www.youtube.com/watch?v=5-aK2_WwrmM&t=2056s&ab_channel=devaslife
  
