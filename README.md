@@ -1,4 +1,5 @@
 # powershell-config
+- Demonstração : <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/demonstracao.gif" width="2000"/>
 - Instale todas as fontes da pasta abaixo
  - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/instalar-fontes.png" width="1000"/>
 Instale o powershell : https://www.microsoft.com/store/productId/9MZ1SNWT0N5D
