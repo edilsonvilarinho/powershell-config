@@ -33,3 +33,7 @@ Instale o powershell : https://www.microsoft.com/store/productId/9MZ1SNWT0N5D
  - Baixar o arquivo do thema <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/baixar%20o%20arquivo%20do%20thema.png" width="1000"/>
  - Colar o arquivo do thema na pasta .config do usuario na pasta powershell <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/colar%20na%20pasta%20config%20e%20dentro%20da%20pasta%20powershell.png" width="1000"/>
  - Alterar o arquivo user_profile.ps1 do caminho <pasta-usuario>\.config\powershell colocando o arquivo do thema escolhido <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/abrir-arquivo-userprofileps1.png" width="1000"/>
+ 
+ - Referência 
+  - Canal Youtube devaslife : https://www.youtube.com/watch?v=5-aK2_WwrmM&t=2056s&ab_channel=devaslife
+ 
