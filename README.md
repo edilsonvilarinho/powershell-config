@@ -36,4 +36,5 @@ Instale o powershell : https://www.microsoft.com/store/productId/9MZ1SNWT0N5D
  
  - Referência 
    - Canal Youtube devaslife : https://www.youtube.com/watch?v=5-aK2_WwrmM&t=2056s&ab_channel=devaslife
+   - Set-ExecutionPolicy : https://learn.microsoft.com/pt-br/powershell/module/microsoft.powershell.security/set-executionpolicy?view=powershell-7.3
  
