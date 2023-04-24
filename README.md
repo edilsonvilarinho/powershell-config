@@ -14,12 +14,19 @@ Instale o powershell : https://www.microsoft.com/store/productId/9MZ1SNWT0N5D
    - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/copie-conteudo-do-arquivo.png" width="1000"/>
  - Cole o conteúdo do arquivo settings.json para o arquivo JSON do windows terminal
    - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/cole-conteudo-settings-para-aqui.png" width="1000"/>
+- Habilitar o windows terminal como admin nas configurações padrões conforme a imagem abaixo 
+   - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/habilitar-executar-admin.png" width="1000"/>
+- Executar o comando : Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope CurrentUser conforme a imagem abaixo 
+   - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/executar-comando-privacidade.png" width="1000"/>
  - Na pasta do seu usuario crie uma pasta .config como mostrado na imagem abaixo
    - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/na-pasta-do-seu-usuario-crie-pasta-config.png" width="1000"/>
  - Copie a pasta powershell do repo clonado para a pasta .config do usuario
    - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/copie-a-pasta-powershell-do-repositorio-para-confi-do-usuario.png" width="1000"/>
  - Copie o conteudo da pasta config-powershell do repo clonado para a pasta PowerShell na pasta Documentos do usuario, caso essa pasta não tenha cido criada crie!!
    - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/copie-o-conteudo-da-pasta-repo-config-poweshell-para-pasta-PowerShell-dos-documentos.png" width="1000"/>
+ - Após toda a configuração anterior basta executar o windows terminal aceitar os termos de contrato informando "Y", provavelmente após as instalações dos modulos será apresentado uma tela muito aprecida com a abaixo. Basta fechar o terminal e abrir novamamente.
+   - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/aceitar%20os%20termos.png" width="1000"/>
+   - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/caso-aconteca-esse-erro.png" width="1000"/>
 
 - Para mais themes basta acessar : https://ohmyposh.dev/docs/themes
  - Selecionar o thema <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/abrir-thema.png" width="1000"/>
