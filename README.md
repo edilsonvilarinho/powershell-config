@@ -1,6 +1,5 @@
 # powershell-config
-
-Instale todas as fontes da pasta abaixo
+- Instale todas as fontes da pasta abaixo
  - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/instalar-fontes.png" width="1000"/>
 Instale o powershell : https://www.microsoft.com/store/productId/9MZ1SNWT0N5D
  - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/install%20powershell.png" width="150"/>
@@ -20,3 +19,9 @@ Instale o powershell : https://www.microsoft.com/store/productId/9MZ1SNWT0N5D
    - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/copie-a-pasta-powershell-do-repositorio-para-confi-do-usuario.png" width="1000"/>
  - Copie o conteudo da pasta config-powershell do repo clonado para a pasta PowerShell na pasta Documentos do usuario, caso essa pasta não tenha cido criada crie!!
    - <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/copie-o-conteudo-da-pasta-repo-config-poweshell-para-pasta-PowerShell-dos-documentos.png" width="1000"/>
+
+- Para mais themes basta acessar : https://ohmyposh.dev/docs/themes
+ - Selecionar o thema <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/abrir-thema.png" width="1000"/>
+ - Baixar o arquivo do thema <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/baixar%20o%20arquivo%20do%20thema.png" width="1000"/>
+ - Colar o arquivo do thema na pasta .config do usuario na pasta powershell <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/colar%20na%20pasta%20config%20e%20dentro%20da%20pasta%20powershell.png" width="1000"/>
+ - Alterar o arquivo user_profile.ps1 do caminho <pasta-usuario>\.config\powershell colocando o arquivo do thema escolhido <img src="https://github.com/edilsonvilarinho/powershell-config/blob/master/img_/abrir-arquivo-userprofileps1.png" width="1000"/>
