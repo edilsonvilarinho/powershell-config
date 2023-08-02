@@ -6,14 +6,7 @@ Import-Module posh-git
 Import-Module Terminal-Icons
 Import-Module PSReadLine
 # Alias
-#Set-Alias vim nvim
-#Set-Alias ll ls
-#Set-Alias g git
-#Set-Alias grep findstr
-#Set-Alias idea idea64.exe
-#Set-Alias tig 'C:Program Files\Git\urs\bin\tig.exe'
-#Set-Alias less 'C:Program Files\Git\urs\bin\less.exe'
-#Set-Alias studio studio.bat
+Set-Alias g git
 
 [console]::InputEncoding = [console]::OutputEncoding = New-Object System.Text.UTF8Encoding
 
@@ -77,4 +70,8 @@ function history {
     }
 
     Get-History
+}
+
+function lastBootUpTime {
+    (get-date) - (gcim Win32_OperatingSystem).LastBootUpTime
 }
