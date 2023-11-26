@@ -20,7 +20,7 @@ try {
    oh-my-posh init pwsh --config $omp_config | Invoke-Expression
 }
 catch {
-    winget install JanDeDobbeleer.OhMyPosh
+    Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://ohmyposh.dev/install.ps1'))
     oh-my-posh init pwsh --config $omp_config | Invoke-Expression
 }
 #Import-Module -Name Terminal-Icons
