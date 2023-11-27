@@ -13,6 +13,7 @@ Set-Alias g git
 #Import-Module posh-git
 #Import-Module oh-my-posh
 $omp_config = Join-Path $PSScriptRoot ".\takuya.omp.json"
+$user_profile = Join-Path $PSScriptRoot ".\user_profile.ps1"
 #$FontPath = Join-Path $PSScriptRoot "fonts\"
 #oh-my-posh --init --shell pwsh --config $omp_config | Invoke-Expression
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope CurrentUser
@@ -74,4 +75,23 @@ function history {
 
 function lastBootUpTime {
     (get-date) - (gcim Win32_OperatingSystem).LastBootUpTime
+}
+
+function help {
+    @"
+# Show-Markdown
+
+## features
+
+* history -c - clear history
+* lastBootUpTime - show time boot
+* listFunctions - list all functions
+
+*stars*
+__underlines__
+"@ | Show-Markdown
+}
+
+function listFunctions{
+    Get-Content $user_profile | Select-String -Pattern "function\s+([^\s{]+)" | Foreach-Object { $_.Matches.Groups[1].Value }
 }
