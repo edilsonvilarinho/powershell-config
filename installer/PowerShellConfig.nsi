@@ -80,7 +80,8 @@ desktopStopped:
 
     SetOutPath "$INSTDIR"
     DetailPrint "Configurando dependencias e perfil do usuario..."
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Install-PowerShellConfig.ps1" -InstallRoot "$INSTDIR" -ProductVersion "${PRODUCT_VERSION}"' $0
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Install-PowerShellConfig.ps1" -InstallRoot "$INSTDIR" -ProductVersion "${PRODUCT_VERSION}"'
+    Pop $0
     ${If} $0 != 0
         MessageBox MB_OK|MB_ICONSTOP "A instalacao falhou. Consulte $LOCALAPPDATA\PowerShellConfig-install.log. Os arquivos e backups foram preservados em $INSTDIR para diagnostico e recuperacao."
         Abort
@@ -119,15 +120,18 @@ Section "Uninstall"
 
     IfFileExists "$LOCALAPPDATA\Microsoft\WindowsApps\pwsh.exe" usePwsh checkProgramFilesPwsh
 usePwsh:
-    ExecWait '"$LOCALAPPDATA\Microsoft\WindowsApps\pwsh.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Uninstall-PowerShellConfig.ps1" -InstallRoot "$INSTDIR"' $0
+    nsExec::ExecToLog '"$LOCALAPPDATA\Microsoft\WindowsApps\pwsh.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Uninstall-PowerShellConfig.ps1" -InstallRoot "$INSTDIR"'
+    Pop $0
     Goto uninstallResult
 checkProgramFilesPwsh:
     IfFileExists "$PROGRAMFILES64\PowerShell\7\pwsh.exe" useProgramFilesPwsh useWindowsPowerShell
 useProgramFilesPwsh:
-    ExecWait '"$PROGRAMFILES64\PowerShell\7\pwsh.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Uninstall-PowerShellConfig.ps1" -InstallRoot "$INSTDIR"' $0
+    nsExec::ExecToLog '"$PROGRAMFILES64\PowerShell\7\pwsh.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Uninstall-PowerShellConfig.ps1" -InstallRoot "$INSTDIR"'
+    Pop $0
     Goto uninstallResult
 useWindowsPowerShell:
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Uninstall-PowerShellConfig.ps1" -InstallRoot "$INSTDIR"' $0
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Uninstall-PowerShellConfig.ps1" -InstallRoot "$INSTDIR"'
+    Pop $0
 uninstallResult:
     ${If} $0 != 0
         MessageBox MB_OK|MB_ICONEXCLAMATION "Algumas configuracoes nao puderam ser restauradas. Os arquivos serao preservados em $INSTDIR para diagnostico."
@@ -142,9 +146,37 @@ uninstallResult:
     RMDir /r "$INSTDIR"
 SectionEnd
 
+Function EnsureWindowsTerminalClosed
+checkWindowsTerminal:
+    nsExec::Exec '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "if (Get-Process -Name WindowsTerminal -ErrorAction SilentlyContinue) { exit 10 }; exit 0"'
+    Pop $0
+
+    ${If} $0 == 0
+        Return
+    ${ElseIf} $0 == 10
+        IfSilent windowsTerminalRunningSilent windowsTerminalRunningInteractive
+windowsTerminalRunningInteractive:
+        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "O Windows Terminal esta em execucao. Encerre completamente todas as janelas e o processo na bandeja antes de continuar." IDRETRY checkWindowsTerminal IDCANCEL windowsTerminalCheckCancelled
+windowsTerminalRunningSilent:
+        SetErrorLevel 10
+        Quit
+windowsTerminalCheckCancelled:
+        SetErrorLevel 1
+        Quit
+    ${Else}
+        IfSilent windowsTerminalCheckFailed windowsTerminalCheckFailedInteractive
+windowsTerminalCheckFailedInteractive:
+        MessageBox MB_OK|MB_ICONSTOP "Nao foi possivel verificar se o Windows Terminal esta em execucao. Codigo: $0. A instalacao sera cancelada sem extrair arquivos."
+windowsTerminalCheckFailed:
+        SetErrorLevel 11
+        Quit
+    ${EndIf}
+FunctionEnd
+
 Function .onInit
     SetShellVarContext current
     !insertmacro MUI_LANGDLL_DISPLAY
+    Call EnsureWindowsTerminalClosed
 FunctionEnd
 
 Function un.onInit

@@ -190,6 +190,19 @@ function Get-ManagedTerminalActions {
     )
 }
 
+function Get-TerminalActionKey {
+    param([AllowNull()]$Action)
+
+    if ($null -eq $Action) {
+        return $null
+    }
+    $property = $Action.PSObject.Properties['keys']
+    if ($null -eq $property -or $null -eq $property.Value) {
+        return $null
+    }
+    return $property.Value.ToString().ToLowerInvariant()
+}
+
 function Test-JsonEquivalent {
     param([AllowNull()]$Left, [AllowNull()]$Right)
 
@@ -249,8 +262,14 @@ function Merge-TerminalSettings {
     $managedActions = @(Get-ManagedTerminalActions)
     $managedKeys = @($managedActions | ForEach-Object { $_.keys.ToLowerInvariant() })
     $existingActions = if ($null -ne $settings.PSObject.Properties['actions']) { @($settings.actions) } else { @() }
-    $snapshot.Actions = @($existingActions | Where-Object { $null -ne $_.keys -and $managedKeys -contains $_.keys.ToString().ToLowerInvariant() })
-    $preservedActions = @($existingActions | Where-Object { $null -eq $_.keys -or $managedKeys -notcontains $_.keys.ToString().ToLowerInvariant() })
+    $snapshot.Actions = @($existingActions | Where-Object {
+        $key = Get-TerminalActionKey -Action $_
+        $null -ne $key -and $managedKeys -contains $key
+    })
+    $preservedActions = @($existingActions | Where-Object {
+        $key = Get-TerminalActionKey -Action $_
+        $null -eq $key -or $managedKeys -notcontains $key
+    })
     Set-JsonProperty -Object $settings -Name 'actions' -Value @($preservedActions + $managedActions)
 
     Save-JsonFile -Path $Path -Value $settings
@@ -335,7 +354,7 @@ function Restore-TerminalSettings {
     $restorableKeys = New-Object System.Collections.Generic.List[string]
 
     foreach ($action in $currentActions) {
-        $key = if ($null -ne $action.keys) { $action.keys.ToString().ToLowerInvariant() } else { $null }
+        $key = Get-TerminalActionKey -Action $action
         if ($null -eq $key -or $managedKeys -notcontains $key) {
             $preserved.Add($action)
             continue
@@ -350,7 +369,7 @@ function Restore-TerminalSettings {
     }
 
     foreach ($oldAction in @($State.Snapshot.Actions)) {
-        $oldKey = if ($null -ne $oldAction.keys) { $oldAction.keys.ToString().ToLowerInvariant() } else { $null }
+        $oldKey = Get-TerminalActionKey -Action $oldAction
         if ($null -ne $oldKey -and $restorableKeys -contains $oldKey) {
             $preserved.Add($oldAction)
         }

@@ -63,6 +63,7 @@ try {
             list = @([pscustomobject]@{ name = 'Custom'; guid = '{custom-profile}' })
         }
         actions = @(
+            [pscustomobject]@{ command = 'globalSummon' },
             [pscustomobject]@{ command = 'customCopy'; keys = 'ctrl+c' },
             [pscustomobject]@{ command = 'newTab'; keys = 'ctrl+t' }
         )
@@ -74,10 +75,11 @@ try {
     Assert-Equal -Expected $script:PowerShellProfileGuid -Actual $merged.defaultProfile -Message 'PowerShell 7 deve ser o perfil padrao'
     Assert-True -Condition ([bool]$merged.profiles.defaults.elevate) -Message 'todos os perfis devem ser elevados'
     Assert-Equal -Expected 'Hack NF' -Actual $merged.profiles.defaults.font.face -Message 'fonte gerenciada deve ser Hack NF'
-    Assert-True -Condition (@($merged.actions | Where-Object keys -eq 'ctrl+c').Count -eq 1) -Message 'atalho gerenciado nao pode ser duplicado'
+    Assert-True -Condition (@($merged.actions | Where-Object command -eq 'globalSummon').Count -eq 1) -Message 'acao sem propriedade keys deve ser preservada'
+    Assert-True -Condition (@($merged.actions | Where-Object { (Get-TerminalActionKey -Action $_) -eq 'ctrl+c' }).Count -eq 1) -Message 'atalho gerenciado nao pode ser duplicado'
     Merge-TerminalSettings -Path $terminalPath | Out-Null
     $mergedAgain = Read-JsonFile -Path $terminalPath
-    Assert-True -Condition (@($mergedAgain.actions | Where-Object keys -eq 'ctrl+c').Count -eq 1) -Message 'merge repetido deve permanecer idempotente'
+    Assert-True -Condition (@($mergedAgain.actions | Where-Object { (Get-TerminalActionKey -Action $_) -eq 'ctrl+c' }).Count -eq 1) -Message 'merge repetido deve permanecer idempotente'
 
     Set-JsonProperty -Object $mergedAgain -Name 'theme' -Value 'light'
     Save-JsonFile -Path $terminalPath -Value $mergedAgain
@@ -93,8 +95,9 @@ try {
     Assert-Equal -Expected 95 -Actual $restored.profiles.defaults.opacity -Message 'rollback deve restaurar opacidade anterior'
     Assert-Equal -Expected $false -Actual $restored.profiles.defaults.elevate -Message 'rollback deve restaurar elevacao anterior'
     Assert-Equal -Expected 'light' -Actual $restored.theme -Message 'rollback deve preservar alteracao posterior do usuario'
-    Assert-Equal -Expected 'customCopy' -Actual (@($restored.actions | Where-Object keys -eq 'ctrl+c')[0].command) -Message 'rollback deve restaurar atalho anterior'
-    Assert-Equal -Expected 'newTab' -Actual (@($restored.actions | Where-Object keys -eq 'ctrl+t')[0].command) -Message 'rollback deve preservar atalho nao gerenciado'
+    Assert-Equal -Expected 'customCopy' -Actual (@($restored.actions | Where-Object { (Get-TerminalActionKey -Action $_) -eq 'ctrl+c' })[0].command) -Message 'rollback deve restaurar atalho anterior'
+    Assert-Equal -Expected 'newTab' -Actual (@($restored.actions | Where-Object { (Get-TerminalActionKey -Action $_) -eq 'ctrl+t' })[0].command) -Message 'rollback deve preservar atalho nao gerenciado'
+    Assert-True -Condition (@($restored.actions | Where-Object command -eq 'globalSummon').Count -eq 1) -Message 'rollback deve preservar acao sem propriedade keys'
 
     $jsoncPath = Join-Path $tempRoot 'settings-jsonc.json'
     Write-Utf8NoBomFile -Path $jsoncPath -Content "{ // comentario`n  `"profiles`": { `"defaults`": {}, },`n}"
@@ -174,13 +177,24 @@ try {
     $nsiContent = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\PowerShellConfig.nsi') -Raw
     Assert-True -Condition ($nsiContent.Contains('SetCompressor zlib')) -Message 'NSIS deve usar zlib'
     Assert-True -Condition (-not $nsiContent.Contains('taskkill /F /IM java.exe')) -Message 'NSIS nao pode encerrar processos Java globais'
+    Assert-True -Condition (-not ($nsiContent -match '(?i)\b(?:taskkill|Stop-Process)\b.*WindowsTerminal')) -Message 'NSIS nao pode encerrar o Windows Terminal automaticamente'
     Assert-True -Condition ($nsiContent.Contains('PowerShellConfig-Setup-${PRODUCT_VERSION}-win-${TARGET_ARCH}.exe')) -Message 'nome do artefato deve incluir versao e arquitetura'
     Assert-True -Condition ($nsiContent.Contains('File /r "${DESKTOP_PAYLOAD_DIR}\*.*"')) -Message 'payload Electron deve entrar no instalador NSIS principal'
     Assert-True -Condition ($nsiContent.Contains('--sync-startup')) -Message 'instalador deve sincronizar a inicializacao preservando a preferencia em upgrades'
     Assert-True -Condition ($nsiContent.Contains('RequestExecutionLevel user')) -Message 'instalador deve executar por usuario'
+    Assert-True -Condition (([regex]::Matches($nsiContent, '(?im)^\s*nsExec::ExecToLog.*(?:powershell|pwsh)\.exe')).Count -eq 4) -Message 'scripts PowerShell de instalacao e desinstalacao devem executar sem abrir console'
+    Assert-True -Condition (-not ($nsiContent -match '(?im)^\s*ExecWait.*(?:powershell|pwsh)\.exe')) -Message 'NSIS nao pode usar ExecWait diretamente para scripts PowerShell'
+    Assert-True -Condition ($nsiContent.Contains('Function EnsureWindowsTerminalClosed')) -Message 'NSIS deve validar Windows Terminal antes da extracao'
+    Assert-True -Condition ($nsiContent.Contains('Call EnsureWindowsTerminalClosed')) -Message 'preflight do Windows Terminal deve executar no onInit'
+    Assert-True -Condition ($nsiContent.Contains('MB_RETRYCANCEL')) -Message 'preflight interativo deve permitir tentar novamente ou cancelar'
+    Assert-True -Condition ($nsiContent.Contains('IfSilent windowsTerminalRunningSilent windowsTerminalRunningInteractive')) -Message 'preflight deve tratar instalacao silenciosa sem dialogo'
+    Assert-True -Condition ($nsiContent.Contains('SetErrorLevel 10')) -Message 'Windows Terminal aberto deve retornar erro no modo silencioso'
     Assert-True -Condition (([regex]::Matches($nsiContent, [regex]::Escape('RMDir /r "$INSTDIR"'))).Count -eq 1) -Message 'falha de instalacao deve preservar arquivos e backups para recuperacao'
     Assert-True -Condition (([regex]::Matches($nsiContent, 'File "\.\.\\powershell\\fonts\\Hack .*Windows Compatible\.ttf"')).Count -eq 4) -Message 'payload deve conter exatamente quatro fontes Hack NF Windows Compatible'
     Assert-True -Condition (-not $nsiContent.Contains('config-powershell\Modules')) -Message 'modulos legados versionados nao podem entrar no instalador'
+
+    $installScriptContent = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\scripts\Install-PowerShellConfig.ps1') -Raw
+    Assert-True -Condition ($installScriptContent.Contains('Get-Process -Name WindowsTerminal')) -Message 'script de instalacao deve manter validacao defensiva contra corrida apos o preflight'
 
     $workflowContent = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release-windows.yml') -Raw
     Assert-True -Condition ($workflowContent.Contains('runs-on: windows-latest')) -Message 'workflow deve compilar no Windows'

@@ -41,7 +41,7 @@ Os modulos antigos em `config-powershell/Modules` sao legado do processo manual 
    - `PowerShellConfig-Setup-X.Y.Z-win-x64.exe`
    - `PowerShellConfig-Setup-X.Y.Z-win-arm64.exe`
 2. Confira o SHA-256 antes de executar.
-3. Feche todas as janelas do Windows Terminal.
+3. Feche completamente o Windows Terminal, inclusive o processo mantido na bandeja. Se ele ainda estiver em execucao, o instalador interrompe o preflight antes de extrair arquivos e permite tentar novamente.
 4. Execute o instalador.
 5. Ao finalizar, abra o PowerShell Config pelo instalador ou pelo menu Iniciar.
 
@@ -54,6 +54,8 @@ Por decisao de configuracao deste projeto, `profiles.defaults.elevate` fica habi
 ```powershell
 .\PowerShellConfig-Setup-X.Y.Z-win-x64.exe /S
 ```
+
+No modo silencioso, a deteccao do Windows Terminal encerra imediatamente o instalador com codigo diferente de zero, sem exibir dialogo e sem extrair arquivos. O instalador nunca encerra processos ou sessoes do Terminal automaticamente.
 
 O log operacional fica em:
 
