@@ -9,7 +9,7 @@ if (Test-Path -LiteralPath $powerShellConfigSettingsPath) {
     try {
         $powerShellConfigSettings = Get-Content -LiteralPath $powerShellConfigSettingsPath -Raw -Encoding UTF8 |
             ConvertFrom-Json -ErrorAction Stop
-        if ($powerShellConfigSettings.schemaVersion -ne 1) {
+        if ($powerShellConfigSettings.schemaVersion -notin @(1, 2)) {
             $powerShellConfigSettings = $null
         }
     } catch {
@@ -171,6 +171,13 @@ function Show-TerminalHelp {
     } else {
         Write-Host $helpText
     }
+}
+
+# Customizações são geradas pelo aplicativo em um único caminho fixo e têm a mesma
+# capacidade de qualquer código inserido pelo próprio usuário em seu $PROFILE.
+$powerShellConfigCustomProfilePath = Join-Path $PSScriptRoot 'config\custom-profile.ps1'
+if (Test-Path -LiteralPath $powerShellConfigCustomProfilePath -PathType Leaf) {
+    . $powerShellConfigCustomProfilePath
 }
 
 $firstRunMarker = Join-Path $PSScriptRoot 'state\first-run-complete'

@@ -205,6 +205,8 @@ try {
     Assert-True -Condition (-not ($profileSource -match 'Claude|contapessoal|contaempresa')) -Message 'perfil distribuido nao pode conter funcoes pessoais de contas Claude'
     Assert-True -Condition (-not ($profileSource -match 'Invoke-WebRequest|Install-Module|Install-PSResource')) -Message 'perfil distribuido nao pode instalar ou baixar dependencias na abertura'
     Assert-True -Condition (-not ($profileSource -match '\bj8\b|\bj21\b|JAVA_HOME')) -Message 'perfil distribuido nao pode referenciar aliases Java desativados'
+    Assert-True -Condition ($profileSource.Contains("Join-Path `$PSScriptRoot 'config\custom-profile.ps1'")) -Message 'perfil deve carregar customizacoes somente pelo caminho gerenciado fixo'
+    Assert-True -Condition ($profileSource.Contains('Test-Path -LiteralPath $powerShellConfigCustomProfilePath -PathType Leaf')) -Message 'perfil deve validar o arquivo gerenciado antes do dot-source'
 
     Get-Content -LiteralPath (Join-Path $repoRoot 'powershell\takuya.omp.json') -Raw | ConvertFrom-Json -ErrorAction Stop | Out-Null
     $script:Passed++
@@ -224,7 +226,10 @@ try {
     }
 
     $defaultSettings = Get-Content -LiteralPath (Join-Path $repoRoot 'powershell\settings.default.json') -Raw | ConvertFrom-Json -ErrorAction Stop
-    Assert-Equal -Expected 1 -Actual $defaultSettings.schemaVersion -Message 'configuracao visual deve iniciar no schema v1'
+    Assert-Equal -Expected 2 -Actual $defaultSettings.schemaVersion -Message 'configuracao visual deve iniciar no schema v2'
+    Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.aliases).Count -Message 'aliases personalizados devem iniciar vazios'
+    Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.functions).Count -Message 'funcoes personalizadas devem iniciar vazias'
+    Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.commands).Count -Message 'comandos personalizados devem iniciar vazios'
     Assert-Equal -Expected $true -Actual $defaultSettings.startup.enabled -Message 'aplicativo deve iniciar com Windows por padrao'
     Assert-Equal -Expected 'builtin:takuya' -Actual $defaultSettings.prompt.themeId -Message 'takuya deve permanecer o tema inicial'
     Assert-Equal -Expected 80 -Actual $defaultSettings.terminal.opacity -Message 'configuracao visual deve refletir opacidade inicial do instalador'

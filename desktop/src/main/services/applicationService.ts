@@ -1,8 +1,9 @@
 import { app, shell } from 'electron';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ApplyRequest, ApplyResult, BackupInfo, BootstrapData } from '../../shared/settings.js';
-import { defaultSettings, settingsSchema } from '../../shared/settings.js';
+import { defaultSettings, migrateSettings, settingsSchema } from '../../shared/settings.js';
 import type { AppPaths } from './paths.js';
 import { appendLog, copyIfExists, ensureDirectory, hashFile, readUtf8, sha256, writeAtomic } from './fileService.js';
 import { SettingsService } from './settingsService.js';
@@ -11,6 +12,7 @@ import { ThemeService } from './themeService.js';
 import { DiagnosticsService } from './diagnosticsService.js';
 import { isLaunchAtStartupEnabled, setLaunchAtStartup } from './startupService.js';
 import { execFileSafe, resolveWindowsExecutable } from './processService.js';
+import { buildCustomProfile } from './customProfileService.js';
 
 interface SnapshotEntry {
   target: string;
@@ -38,10 +40,12 @@ export class ApplicationService {
     const pieces = [
       readUtf8(this.paths.settingsPath) ?? 'missing',
       this.terminalService.readContent(),
+      this.terminalService.fragmentHash(),
       hashFile(this.paths.activeThemePath),
       hashFile(this.paths.statePath),
       hashFile(this.paths.profilePath),
       hashFile(this.paths.managedProfilePath),
+      hashFile(this.paths.customProfilePath),
     ];
     return sha256(pieces.join('\n---powershell-config---\n'));
   }
@@ -79,6 +83,8 @@ export class ApplicationService {
 
     await this.themeService.preview(nextSettings.prompt.themeId);
     await this.validateManagedProfileSyntax();
+    const nextCustomProfileContent = buildCustomProfile(nextSettings);
+    await this.validateGeneratedProfileSyntax(nextCustomProfileContent);
     const nextSettingsContent = this.settingsService.serialize(nextSettings);
     const nextThemeContent = this.themeService.readTheme(nextSettings.prompt.themeId);
     const nextTerminalContent = this.terminalService.buildContent(nextSettings);
@@ -91,11 +97,13 @@ export class ApplicationService {
       this.snapshot(this.paths.activeThemePath, path.join(backupRoot, 'active.omp.json')),
       this.snapshot(this.paths.terminalSettingsPath, path.join(backupRoot, 'terminal-settings.json')),
       this.snapshot(this.paths.statePath, path.join(backupRoot, 'install-state.json')),
+      this.snapshot(this.paths.customProfilePath, path.join(backupRoot, 'custom-profile.ps1')),
     ];
     const previousStartup = isLaunchAtStartupEnabled();
 
     try {
       writeAtomic(this.paths.settingsPath, nextSettingsContent);
+      writeAtomic(this.paths.customProfilePath, nextCustomProfileContent);
       writeAtomic(this.paths.activeThemePath, nextThemeContent);
       writeAtomic(this.paths.terminalSettingsPath, nextTerminalContent);
       if (nextStateContent) writeAtomic(this.paths.statePath, nextStateContent);
@@ -134,9 +142,13 @@ export class ApplicationService {
     const terminalContent = readUtf8(path.join(sourceRoot, 'terminal-settings.json'));
     const stateContent = readUtf8(path.join(sourceRoot, 'install-state.json'));
     if (!settingsContent || !themeContent || !terminalContent) throw new Error('O backup mais recente está incompleto.');
-    const restoredSettings = settingsSchema.parse(JSON.parse(settingsContent));
+    const restoredSettings = migrateSettings(JSON.parse(settingsContent));
+    const restoredSettingsContent = this.settingsService.serialize(restoredSettings);
+    const restoredCustomProfileContent = buildCustomProfile(restoredSettings);
     JSON.parse(themeContent.toString('utf8'));
     this.terminalService.validateContent(terminalContent);
+    await this.validateManagedProfileSyntax();
+    await this.validateGeneratedProfileSyntax(restoredCustomProfileContent);
 
     const safetyRoot = path.join(this.paths.backupDirectory, `${new Date().toISOString().replace(/[:.]/g, '-')}-before-restore`);
     ensureDirectory(safetyRoot);
@@ -145,10 +157,12 @@ export class ApplicationService {
       this.snapshot(this.paths.activeThemePath, path.join(safetyRoot, 'active.omp.json')),
       this.snapshot(this.paths.terminalSettingsPath, path.join(safetyRoot, 'terminal-settings.json')),
       this.snapshot(this.paths.statePath, path.join(safetyRoot, 'install-state.json')),
+      this.snapshot(this.paths.customProfilePath, path.join(safetyRoot, 'custom-profile.ps1')),
     ];
     const previousStartup = isLaunchAtStartupEnabled();
     try {
-      writeAtomic(this.paths.settingsPath, settingsContent);
+      writeAtomic(this.paths.settingsPath, restoredSettingsContent);
+      writeAtomic(this.paths.customProfilePath, restoredCustomProfileContent);
       writeAtomic(this.paths.activeThemePath, themeContent);
       writeAtomic(this.paths.terminalSettingsPath, terminalContent);
       if (stateContent) writeAtomic(this.paths.statePath, stateContent);
@@ -187,13 +201,31 @@ export class ApplicationService {
     if (!fs.existsSync(this.paths.managedProfilePath)) {
       throw new Error(`Perfil gerenciado não encontrado: ${this.paths.managedProfilePath}`);
     }
+    await this.validatePowerShellFileSyntax(this.paths.managedProfilePath);
+  }
+
+  private async validateGeneratedProfileSyntax(content: string): Promise<void> {
+    ensureDirectory(path.dirname(this.paths.customProfilePath));
+    const temporaryPath = path.join(
+      path.dirname(this.paths.customProfilePath),
+      `.custom-profile-${process.pid}-${randomUUID()}.validation.ps1`,
+    );
+    try {
+      writeAtomic(temporaryPath, content);
+      await this.validatePowerShellFileSyntax(temporaryPath);
+    } finally {
+      fs.rmSync(temporaryPath, { force: true });
+    }
+  }
+
+  private async validatePowerShellFileSyntax(filePath: string): Promise<void> {
     const executable = resolveWindowsExecutable('pwsh.exe', [
       process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'PowerShell', '7', 'pwsh.exe') : null,
     ]);
     const parser = "$filePath=[Environment]::GetEnvironmentVariable('POWERSHELL_CONFIG_PROFILE_TO_VALIDATE'); $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($filePath,[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count) { $errors | ForEach-Object { [Console]::Error.WriteLine($_.Message) }; exit 1 }";
     await execFileSafe(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', parser], 10_000, {
       ...process.env,
-      POWERSHELL_CONFIG_PROFILE_TO_VALIDATE: this.paths.managedProfilePath,
+      POWERSHELL_CONFIG_PROFILE_TO_VALIDATE: filePath,
     });
   }
 

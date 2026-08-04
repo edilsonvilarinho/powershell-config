@@ -15,6 +15,7 @@ export interface AppPaths {
   terminalSettingsPath: string;
   profilePath: string;
   managedProfilePath: string;
+  customProfilePath: string;
   builtinThemePath: string;
 }
 
@@ -72,6 +73,7 @@ export function createAppPaths(): AppPaths {
     terminalSettingsPath,
     profilePath,
     managedProfilePath: app.isPackaged ? path.join(installRoot, 'profile.ps1') : devManagedProfile,
+    customProfilePath: path.join(configDirectory, 'custom-profile.ps1'),
     builtinThemePath: app.isPackaged ? installedBuiltinTheme : devBuiltinTheme,
   };
 }

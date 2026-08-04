@@ -53,6 +53,11 @@ function Field({ label, children, hint }: { label: string; children: React.React
   return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
 }
 
+function customizationId(prefix: string): string {
+  const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${suffix}`;
+}
+
 function DiagnosticCard({ title, value, ok }: { title: string; value: string; ok: boolean }) {
   return <article className="metric-card"><span>{title}</span><strong>{value}</strong><Status ok={ok}>{ok ? 'Operacional' : 'Atenção'}</Status></article>;
 }
@@ -80,7 +85,7 @@ function Overview({ data }: { data: BootstrapData }) {
       <div className="two-columns">
         <article className="panel terminal-panel">
           <div className="terminal-dots"><i /><i /><i /></div>
-          <pre><span className="prompt">PS</span> <span className="path">~</span> <span className="command">Get-PowerShellConfig</span>{'\n'}<span className="muted">profile</span>  {diagnostics.profileLoaderInstalled ? 'ready' : 'loader ausente'}{'\n'}<span className="muted">settings</span> {diagnostics.settingsValid ? 'schema v1 válido' : 'inválido'}{'\n'}<span className="muted">startup</span>  {data.settings.startup.enabled ? 'enabled --hidden' : 'disabled'}</pre>
+          <pre><span className="prompt">PS</span> <span className="path">~</span> <span className="command">Get-PowerShellConfig</span>{'\n'}<span className="muted">profile</span>  {diagnostics.profileLoaderInstalled ? 'ready' : 'loader ausente'}{'\n'}<span className="muted">settings</span> {diagnostics.settingsValid ? `schema v${data.settings.schemaVersion} válido` : 'inválido'}{'\n'}<span className="muted">startup</span>  {data.settings.startup.enabled ? 'enabled --hidden' : 'disabled'}</pre>
         </article>
         <article className="panel">
           <h2>Integridade</h2>
@@ -141,13 +146,46 @@ function Themes({ themes, draft, onDraft, onImport, preview, previewBusy }: {
 }
 
 function Profile({ draft, onDraft }: { draft: AppSettings; onDraft: (settings: AppSettings) => void }) {
+  const updateCustomizations = (customizations: AppSettings['customizations']): void => {
+    onDraft({ ...draft, customizations });
+  };
+
   return (
-    <section><header className="page-header"><div><p className="eyebrow">USER_PROFILE.PS1</p><h1>Comportamento estruturado do shell.</h1><p>Somente opções conhecidas; nenhum código arbitrário é executado.</p></div></header>
+    <section><header className="page-header"><div><p className="eyebrow">USER_PROFILE.PS1</p><h1>Comportamento e código do seu shell.</h1><p>Opções conhecidas e customizações próprias, persistidas em um arquivo gerenciado.</p></div></header>
       <div className="two-columns">
         <article className="panel form-panel"><h2>Módulos</h2><Toggle checked={draft.modules.poshGit} onChange={(value) => onDraft(setNested(draft, 'modules', 'poshGit', value))} label="posh-git" /><Toggle checked={draft.modules.terminalIcons} onChange={(value) => onDraft(setNested(draft, 'modules', 'terminalIcons', value))} label="Terminal-Icons" /><Toggle checked={draft.psReadLine.enabled} onChange={(value) => onDraft(setNested(draft, 'psReadLine', 'enabled', value))} label="PSReadLine" /></article>
         <article className="panel form-panel"><h2>PSReadLine</h2><div className="form-grid"><Field label="Modo de edição"><select value={draft.psReadLine.editMode} onChange={(event) => onDraft(setNested(draft, 'psReadLine', 'editMode', event.target.value as AppSettings['psReadLine']['editMode']))}><option>Emacs</option><option>Windows</option><option>Vi</option></select></Field><Field label="Bell"><select value={draft.psReadLine.bellStyle} onChange={(event) => onDraft(setNested(draft, 'psReadLine', 'bellStyle', event.target.value as AppSettings['psReadLine']['bellStyle']))}><option>None</option><option>Audible</option><option>Visual</option></select></Field><Field label="Predição"><select value={draft.psReadLine.predictionSource} onChange={(event) => onDraft(setNested(draft, 'psReadLine', 'predictionSource', event.target.value as AppSettings['psReadLine']['predictionSource']))}><option>History</option><option>None</option></select></Field><Field label="Visualização"><select value={draft.psReadLine.predictionViewStyle} onChange={(event) => onDraft(setNested(draft, 'psReadLine', 'predictionViewStyle', event.target.value as AppSettings['psReadLine']['predictionViewStyle']))}><option>ListView</option><option>InlineView</option></select></Field></div><Toggle checked={draft.psReadLine.ctrlD} onChange={(value) => onDraft(setNested(draft, 'psReadLine', 'ctrlD', value))} label="Ctrl+D apaga o caractere atual" /></article>
       </div>
       <article className="panel form-panel"><h2>Aliases conhecidos</h2><div className="alias-grid">{Object.entries(draft.aliases).map(([name, enabled]) => <Toggle key={name} checked={enabled} onChange={(value) => onDraft({ ...draft, aliases: { ...draft.aliases, [name]: value } })} label={name} />)}</div></article>
+      <article className="panel customization-panel">
+        <div className="risk-notice" role="note"><strong>Execução de código local</strong><p>Funções e comandos personalizados são código PowerShell do próprio usuário. Eles executam na abertura do shell com as permissões da sessão. O aplicativo valida sintaxe, mas não torna esse código seguro nem limita seus efeitos.</p></div>
+        <div className="customization-heading"><div><h2>Aliases personalizados</h2><p>O destino deve ser o nome de um comando, sem caminho, argumentos ou expressão.</p></div><button className="secondary" onClick={() => updateCustomizations({ ...draft.customizations, aliases: [...draft.customizations.aliases, { id: customizationId('alias'), enabled: true, name: '', command: '' }] })}>Adicionar alias</button></div>
+        <div className="customization-list">
+          {draft.customizations.aliases.map((entry) => <div className="customization-item alias-editor" key={entry.id}>
+            <input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar alias ${entry.name || 'novo'}`} onChange={(event) => updateCustomizations({ ...draft.customizations, aliases: draft.customizations.aliases.map((item) => item.id === entry.id ? { ...item, enabled: event.target.checked } : item) })} />
+            <Field label="Nome do alias"><input required maxLength={128} value={entry.name} onChange={(event) => updateCustomizations({ ...draft.customizations, aliases: draft.customizations.aliases.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) })} /></Field>
+            <Field label="Comando de destino"><input required maxLength={256} placeholder="Ex.: Get-ChildItem" value={entry.command} onChange={(event) => updateCustomizations({ ...draft.customizations, aliases: draft.customizations.aliases.map((item) => item.id === entry.id ? { ...item, command: event.target.value } : item) })} /></Field>
+            <button className="danger compact" aria-label={`Excluir alias ${entry.name || 'novo'}`} onClick={() => updateCustomizations({ ...draft.customizations, aliases: draft.customizations.aliases.filter((item) => item.id !== entry.id) })}>Excluir</button>
+          </div>)}
+          {!draft.customizations.aliases.length && <p className="empty-customization">Nenhum alias personalizado.</p>}
+        </div>
+        <div className="customization-heading"><div><h2>Funções personalizadas</h2><p>Informe o nome e o corpo da função. Um bloco <code>function global:Nome</code> será gerado.</p></div><button className="secondary" onClick={() => updateCustomizations({ ...draft.customizations, functions: [...draft.customizations.functions, { id: customizationId('function'), enabled: true, name: '', body: '' }] })}>Adicionar função</button></div>
+        <div className="customization-list">
+          {draft.customizations.functions.map((entry) => <div className="customization-item code-editor" key={entry.id}>
+            <div className="customization-item-header"><input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar função ${entry.name || 'nova'}`} onChange={(event) => updateCustomizations({ ...draft.customizations, functions: draft.customizations.functions.map((item) => item.id === entry.id ? { ...item, enabled: event.target.checked } : item) })} /><Field label="Nome da função"><input required maxLength={128} placeholder="Ex.: Invoke-Workspace" value={entry.name} onChange={(event) => updateCustomizations({ ...draft.customizations, functions: draft.customizations.functions.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) })} /></Field><button className="danger compact" aria-label={`Excluir função ${entry.name || 'nova'}`} onClick={() => updateCustomizations({ ...draft.customizations, functions: draft.customizations.functions.filter((item) => item.id !== entry.id) })}>Excluir</button></div>
+            <Field label="Corpo PowerShell" hint="Pode começar com param(...) e conter múltiplas linhas."><textarea required maxLength={32768} spellCheck={false} value={entry.body} onChange={(event) => updateCustomizations({ ...draft.customizations, functions: draft.customizations.functions.map((item) => item.id === entry.id ? { ...item, body: event.target.value } : item) })} /></Field>
+          </div>)}
+          {!draft.customizations.functions.length && <p className="empty-customization">Nenhuma função personalizada.</p>}
+        </div>
+        <div className="customization-heading"><div><h2>Comandos na abertura</h2><p>Blocos PowerShell executados quando o perfil é carregado, na ordem exibida.</p></div><button className="secondary" onClick={() => updateCustomizations({ ...draft.customizations, commands: [...draft.customizations.commands, { id: customizationId('command'), enabled: true, label: '', code: '' }] })}>Adicionar comando</button></div>
+        <div className="customization-list">
+          {draft.customizations.commands.map((entry) => <div className="customization-item code-editor" key={entry.id}>
+            <div className="customization-item-header"><input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar comando ${entry.label || 'novo'}`} onChange={(event) => updateCustomizations({ ...draft.customizations, commands: draft.customizations.commands.map((item) => item.id === entry.id ? { ...item, enabled: event.target.checked } : item) })} /><Field label="Identificação"><input required maxLength={128} placeholder="Ex.: Variáveis do projeto" value={entry.label} onChange={(event) => updateCustomizations({ ...draft.customizations, commands: draft.customizations.commands.map((item) => item.id === entry.id ? { ...item, label: event.target.value } : item) })} /></Field><button className="danger compact" aria-label={`Excluir comando ${entry.label || 'novo'}`} onClick={() => updateCustomizations({ ...draft.customizations, commands: draft.customizations.commands.filter((item) => item.id !== entry.id) })}>Excluir</button></div>
+            <Field label="Código PowerShell"><textarea required maxLength={32768} spellCheck={false} value={entry.code} onChange={(event) => updateCustomizations({ ...draft.customizations, commands: draft.customizations.commands.map((item) => item.id === entry.id ? { ...item, code: event.target.value } : item) })} /></Field>
+          </div>)}
+          {!draft.customizations.commands.length && <p className="empty-customization">Nenhum comando configurado.</p>}
+        </div>
+      </article>
       <article className="panel form-panel"><Toggle checked={draft.help.showOnFirstRun} onChange={(value) => onDraft(setNested(draft, 'help', 'showOnFirstRun', value))} label="Exibir ajuda na próxima abertura" description="Para repetir, desative e aplique; depois ative e aplique novamente." /></article>
     </section>
   );
@@ -180,14 +218,16 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const load = async (): Promise<void> => {
+  const load = async (): Promise<boolean> => {
     try {
       const bootstrap = await window.powershellConfig.getBootstrap();
       setData(bootstrap);
       setDraft(cloneSettings(bootstrap.settings));
       document.documentElement.dataset.theme = bootstrap.settings.ui.theme;
+      return true;
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) });
+      return false;
     }
   };
 
@@ -234,7 +274,18 @@ export function App() {
       setMessage({ type: 'success', text: 'Configurações validadas e aplicadas com backup.' });
     } catch (error) {
       setReview(false);
-      setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) });
+      const errorText = error instanceof Error ? error.message : String(error);
+      if (errorText.includes('As configurações foram alteradas externamente.')) {
+        const reloaded = await load();
+        setMessage({
+          type: 'error',
+          text: reloaded
+            ? 'As configurações foram alteradas externamente. Os dados foram recarregados; revise e refaça a alteração.'
+            : errorText,
+        });
+      } else {
+        setMessage({ type: 'error', text: errorText });
+      }
     } finally { setBusy(false); }
   };
 

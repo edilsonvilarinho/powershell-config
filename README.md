@@ -94,11 +94,23 @@ O aplicativo possui cinco areas:
 
 - `Visao geral`: versoes e integridade do ambiente.
 - `Temas Oh My Posh`: catalogo local, favoritos, busca, preview gerado pelo executavel oficial e importacao validada de `.omp.json`.
-- `Perfil PowerShell`: Oh My Posh, `posh-git`, Terminal-Icons, PSReadLine, aliases conhecidos e ajuda inicial.
+- `Perfil PowerShell`: Oh My Posh, `posh-git`, Terminal-Icons, PSReadLine, aliases conhecidos, aliases personalizados, funções, comandos de abertura e ajuda inicial.
 - `Windows Terminal`: esquema, fonte, tamanho, opacidade, acrilico e elevacao, preservando JSONC e propriedades externas.
 - `Configuracoes`: tema claro/escuro baseado no OpenCode, inicializacao com Windows, logs e restauracao dos padroes.
 
 O renderer nao possui acesso direto a Node.js, filesystem, registro ou processos. Operacoes privilegiadas passam por IPC validado no preload com `contextIsolation`, sandbox e `nodeIntegration: false`. Nao ha telemetria nem carregamento de paginas remotas dentro do Electron.
+
+### Customizacoes do perfil
+
+O contrato `settings.json` usa `schemaVersion: 2`. Configuracoes v1 sao migradas pelo aplicativo sem perder as opcoes existentes e recebem listas vazias de customizacoes. O aplicativo oferece CRUD para:
+
+- aliases personalizados, com nome e destino restritos a nomes de comandos, sem paths, argumentos ou expressoes;
+- funcoes personalizadas, com nome estruturado e corpo PowerShell;
+- comandos PowerShell executados na abertura, na ordem cadastrada.
+
+Ao aplicar, o desktop gera `%LOCALAPPDATA%\PowerShellConfig\config\custom-profile.ps1`, valida a sintaxe com o parser oficial do PowerShell e somente entao grava settings, perfil customizado, tema e Windows Terminal por transacao com backup e rollback. O perfil distribuido carrega apenas esse caminho fixo; a interface nao recebe nem encaminha paths arbitrarios por IPC.
+
+Funcoes e comandos personalizados sao codigo PowerShell fornecido pelo proprio usuario. Eles executam com as permissoes da sessao e podem ler, alterar ou excluir dados acessiveis por ela. A validacao de sintaxe nao e sandbox, auditoria de seguranca ou garantia de comportamento. Erros de runtime continuam sendo responsabilidade do codigo cadastrado.
 
 ## Perfil distribuido
 
@@ -115,6 +127,7 @@ Comandos principais:
 - `Show-TerminalHelp`: ajuda do ambiente
 
 Funcoes pessoais de contas Claude e referencias Java desativadas nao fazem parte do perfil distribuido.
+Os aliases conhecidos acima permanecem configuraveis separadamente e nao podem ser sobrescritos por nomes cadastrados no CRUD de aliases ou funcoes. Codigo livre de abertura continua tendo capacidade PowerShell integral, inclusive para redefinir comandos por decisao explicita do usuario.
 
 ## Validacao local
 
@@ -129,7 +142,7 @@ npm run build
 Pop-Location
 ```
 
-Os testes cobrem sintaxe PowerShell, assets, versionamento, bloco gerenciado, merge, idempotencia, conflito e rollback do Windows Terminal, schema do desktop, JSONC, renderer e gravacao atomica.
+Os testes cobrem sintaxe PowerShell, assets, versionamento, bloco gerenciado, merge, idempotencia, conflito e rollback do Windows Terminal, migracao/schema do desktop, geracao do perfil customizado, JSONC, renderer e gravacao atomica.
 
 Smoke test do renderer empacotado:
 

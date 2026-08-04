@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { applyEdits, modify, parse, type ParseError } from 'jsonc-parser';
 import type { AppSettings } from '../../shared/settings.js';
 import type { AppPaths } from './paths.js';
@@ -35,6 +36,24 @@ function setValue(content: string, path: (string | number)[], value: unknown): s
 export class TerminalService {
   constructor(private readonly paths: AppPaths) {}
 
+  private managedFragmentPath(): string | null {
+    const stateContent = readUtf8(this.paths.statePath);
+    if (!stateContent) return null;
+    try {
+      const state = JSON.parse(stateContent) as { TerminalFragment?: { Path?: unknown } };
+      return typeof state.TerminalFragment?.Path === 'string' && path.isAbsolute(state.TerminalFragment.Path)
+        ? state.TerminalFragment.Path
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  fragmentHash(): string {
+    const fragmentPath = this.managedFragmentPath();
+    return fragmentPath ? hashFile(fragmentPath) : 'missing';
+  }
+
   exists(): boolean {
     return fs.existsSync(this.paths.terminalSettingsPath);
   }
@@ -50,10 +69,26 @@ export class TerminalService {
   listColorSchemes(): string[] {
     const content = this.readContent();
     const parsed = parseJsonc(content) as { schemes?: Array<{ name?: unknown }> };
-    const custom = Array.isArray(parsed.schemes)
+    const userSchemes = Array.isArray(parsed.schemes)
       ? parsed.schemes.map((scheme) => scheme.name).filter((name): name is string => typeof name === 'string')
       : [];
-    return [...new Set([...builtInSchemes, ...custom])].sort((left, right) => left.localeCompare(right));
+    const fragmentPath = this.managedFragmentPath();
+    let managedSchemes: string[] = [];
+    if (fragmentPath) {
+      const fragmentContent = readUtf8(fragmentPath);
+      if (fragmentContent) {
+        try {
+          const fragment = parseJsonc(fragmentContent) as { schemes?: Array<{ name?: unknown }> };
+          managedSchemes = Array.isArray(fragment.schemes)
+            ? fragment.schemes.map((scheme) => scheme.name).filter((name): name is string => typeof name === 'string')
+            : [];
+        } catch {
+          // Fragmento ausente ou inválido não torna o esquema disponível para aplicação.
+        }
+      }
+    }
+    return [...new Set([...builtInSchemes, ...userSchemes, ...managedSchemes])]
+      .sort((left, right) => left.localeCompare(right));
   }
 
   buildContent(settings: AppSettings): string {

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "ui": {
     "theme": "dark"
   },
@@ -32,6 +32,11 @@
     "ls": true,
     "dir": true,
     "ll": true
+  },
+  "customizations": {
+    "aliases": [],
+    "functions": [],
+    "commands": []
   },
   "help": {
     "showOnFirstRun": true

@@ -26,6 +26,7 @@ function createPaths(content: string): AppPaths {
     terminalSettingsPath,
     profilePath: path.join(root, 'profile.ps1'),
     managedProfilePath: path.join(root, 'managed-profile.ps1'),
+    customProfilePath: path.join(root, 'config', 'custom-profile.ps1'),
     builtinThemePath: path.join(root, 'takuya.json'),
   };
 }
@@ -57,6 +58,24 @@ describe('TerminalService', () => {
     const schemes = new TerminalService(paths).listColorSchemes();
     expect(schemes).toContain('Meu Tema');
     expect(schemes.filter((item) => item === 'Campbell')).toHaveLength(1);
+  });
+
+  it('lista esquema fornecido pelo fragmento gerenciado do instalador', () => {
+    const paths = createPaths('{ "profiles": { "defaults": { "colorScheme": "One Half Dark (modded)" } } }');
+    const fragmentPath = path.join(paths.installRoot, 'powershell-config-fragment.json');
+    fs.writeFileSync(fragmentPath, '{ "schemes": [{ "name": "One Half Dark (modded)" }] }', 'utf8');
+    fs.writeFileSync(paths.statePath, JSON.stringify({ TerminalFragment: { Path: fragmentPath } }), 'utf8');
+
+    expect(new TerminalService(paths).listColorSchemes()).toContain('One Half Dark (modded)');
+  });
+
+  it('não aceita como disponível esquema cujo fragmento gerenciado não existe', () => {
+    const paths = createPaths('{ "profiles": { "defaults": { "colorScheme": "Esquema ausente" } } }');
+    fs.writeFileSync(paths.statePath, JSON.stringify({
+      TerminalFragment: { Path: path.join(paths.installRoot, 'fragmento-ausente.json') },
+    }), 'utf8');
+
+    expect(new TerminalService(paths).listColorSchemes()).not.toContain('Esquema ausente');
   });
 
   it('interrompe diante de JSONC inválido', () => {
