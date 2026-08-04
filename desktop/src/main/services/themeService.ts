@@ -1,0 +1,141 @@
+import { dialog } from 'electron';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { ThemeInfo } from '../../shared/settings.js';
+import type { AppPaths } from './paths.js';
+import { ensureDirectory, hashFile, readUtf8, sha256, writeAtomic } from './fileService.js';
+import { execFileSafe, resolveWindowsExecutable } from './processService.js';
+
+interface ThemeRecord extends ThemeInfo {
+  filePath: string;
+}
+
+function safeThemeName(filePath: string): string {
+  return path.basename(filePath).replace(/\.omp\.json$/i, '');
+}
+
+export class ThemeService {
+  private catalog = new Map<string, ThemeRecord>();
+
+  constructor(private readonly paths: AppPaths) {}
+
+  private installedThemesDirectory(): string | null {
+    const candidates = [
+      process.env.POSH_THEMES_PATH,
+      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'oh-my-posh', 'themes') : null,
+    ].filter((candidate): candidate is string => Boolean(candidate));
+    return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+  }
+
+  list(): ThemeInfo[] {
+    this.catalog.clear();
+    if (fs.existsSync(this.paths.builtinThemePath)) {
+      this.catalog.set('builtin:takuya', { id: 'builtin:takuya', name: 'takuya', source: 'builtin', filePath: this.paths.builtinThemePath });
+    }
+
+    const installedDirectory = this.installedThemesDirectory();
+    if (installedDirectory) {
+      for (const entry of fs.readdirSync(installedDirectory, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.omp.json')) continue;
+        const name = safeThemeName(entry.name);
+        const id = `installed:${name}`;
+        this.catalog.set(id, { id, name, source: 'installed', filePath: path.join(installedDirectory, entry.name) });
+      }
+    }
+
+    ensureDirectory(this.paths.importedThemesDirectory);
+    for (const entry of fs.readdirSync(this.paths.importedThemesDirectory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.omp.json')) continue;
+      const name = safeThemeName(entry.name).replace(/-[a-f0-9]{12}$/i, '');
+      const digest = path.basename(entry.name).match(/-([a-f0-9]{12})\.omp\.json$/i)?.[1] ?? sha256(entry.name).slice(0, 12);
+      const id = `imported:${digest}`;
+      this.catalog.set(id, { id, name, source: 'imported', filePath: path.join(this.paths.importedThemesDirectory, entry.name) });
+    }
+
+    return [...this.catalog.values()]
+      .map(({ filePath: _filePath, ...theme }) => theme)
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  resolve(themeId: string): ThemeRecord {
+    if (!this.catalog.size) this.list();
+    const record = this.catalog.get(themeId);
+    if (!record) throw new Error('Tema não encontrado ou não permitido. Recarregue a galeria.');
+    return record;
+  }
+
+  readTheme(themeId: string): Buffer {
+    const record = this.resolve(themeId);
+    const content = fs.readFileSync(record.filePath);
+    JSON.parse(content.toString('utf8'));
+    return content;
+  }
+
+  ensureActiveTheme(): void {
+    if (fs.existsSync(this.paths.activeThemePath)) return;
+    const source = this.resolve('builtin:takuya').filePath;
+    writeAtomic(this.paths.activeThemePath, fs.readFileSync(source));
+  }
+
+  async preview(themeId: string): Promise<string> {
+    const record = this.resolve(themeId);
+    const cacheKey = `${hashFile(record.filePath)}-${await this.ohMyPoshVersion()}`;
+    const outputPath = path.join(this.paths.previewCacheDirectory, `${cacheKey}.png`);
+    ensureDirectory(this.paths.previewCacheDirectory);
+    if (!fs.existsSync(outputPath)) {
+      await execFileSafe(this.ohMyPoshExecutable(), ['config', 'export', 'image', '--config', record.filePath, '--output', outputPath], 30_000);
+    }
+    const image = fs.readFileSync(outputPath);
+    if (image.length > 5 * 1024 * 1024) throw new Error('Prévia do tema excedeu o limite de 5 MB.');
+    return `data:image/png;base64,${image.toString('base64')}`;
+  }
+
+  async importWithDialog(): Promise<ThemeInfo | null> {
+    const result = await dialog.showOpenDialog({
+      title: 'Importar tema Oh My Posh',
+      properties: ['openFile'],
+      filters: [{ name: 'Tema Oh My Posh', extensions: ['json'] }],
+    });
+    if (result.canceled || result.filePaths.length !== 1) return null;
+    const source = result.filePaths[0];
+    const stat = fs.statSync(source);
+    if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw new Error('O tema deve ser um arquivo JSON de até 2 MB.');
+    const content = readUtf8(source);
+    if (!content) throw new Error('Tema vazio.');
+    JSON.parse(content);
+    const digest = sha256(content).slice(0, 12);
+    const name = safeThemeName(source).replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 80) || 'tema-importado';
+    const destination = path.join(this.paths.importedThemesDirectory, `${name}-${digest}.omp.json`);
+    ensureDirectory(this.paths.importedThemesDirectory);
+    writeAtomic(destination, content);
+    try {
+      this.list();
+      const theme = this.catalog.get(`imported:${digest}`);
+      if (!theme) throw new Error('Tema importado não pôde ser catalogado.');
+      await this.preview(theme.id);
+      const { filePath: _filePath, ...publicTheme } = theme;
+      return publicTheme;
+    } catch (error) {
+      fs.rmSync(destination, { force: true });
+      this.list();
+      throw error;
+    }
+  }
+
+  private async ohMyPoshVersion(): Promise<string> {
+    try {
+      return (await execFileSafe(this.ohMyPoshExecutable(), ['version'], 5_000)).stdout.replace(/[^a-zA-Z0-9.-]/g, '_');
+    } catch {
+      return `unavailable-${os.platform()}`;
+    }
+  }
+
+  private ohMyPoshExecutable(): string {
+    const themesDirectory = this.installedThemesDirectory();
+    return resolveWindowsExecutable('oh-my-posh.exe', [
+      themesDirectory ? path.join(path.dirname(themesDirectory), 'bin', 'oh-my-posh.exe') : null,
+      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'oh-my-posh', 'bin', 'oh-my-posh.exe') : null,
+    ]);
+  }
+}

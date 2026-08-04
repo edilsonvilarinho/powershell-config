@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "ui": {
+    "theme": "dark"
+  },
+  "startup": {
+    "enabled": true
+  },
+  "prompt": {
+    "enabled": true,
+    "themeId": "builtin:takuya",
+    "themeName": "takuya"
+  },
+  "modules": {
+    "poshGit": true,
+    "terminalIcons": true
+  },
+  "psReadLine": {
+    "enabled": true,
+    "editMode": "Emacs",
+    "bellStyle": "None",
+    "predictionSource": "History",
+    "predictionViewStyle": "ListView",
+    "ctrlD": true
+  },
+  "aliases": {
+    "g": true,
+    "vim": true,
+    "grep": true,
+    "tig": true,
+    "less": true,
+    "ls": true,
+    "dir": true,
+    "ll": true
+  },
+  "help": {
+    "showOnFirstRun": true
+  },
+  "terminal": {
+    "colorScheme": "One Half Dark (modded)",
+    "fontFace": "Hack NF",
+    "fontSize": 11,
+    "opacity": 80,
+    "useAcrylic": false,
+    "elevate": true
+  }
+}

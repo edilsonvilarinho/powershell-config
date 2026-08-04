@@ -23,6 +23,8 @@ if (-not (Test-Path -LiteralPath $RepoPath)) {
 $resolvedRepoPath = (Resolve-Path -LiteralPath $RepoPath).Path
 $safeDirectory = $resolvedRepoPath -replace '\\', '/'
 $versionPath = Join-Path $resolvedRepoPath 'installer\version.nsh'
+$desktopPackagePath = Join-Path $resolvedRepoPath 'desktop\package.json'
+$desktopLockPath = Join-Path $resolvedRepoPath 'desktop\package-lock.json'
 $testPath = Join-Path $resolvedRepoPath 'installer\scripts\Test-PowerShellConfig.ps1'
 $script:LastExitCode = 0
 
@@ -179,6 +181,9 @@ if (-not (Test-Path -LiteralPath $versionPath)) {
 if (-not (Test-Path -LiteralPath $testPath)) {
     throw "Script de testes nao encontrado: $testPath"
 }
+if (-not (Test-Path -LiteralPath $desktopPackagePath) -or -not (Test-Path -LiteralPath $desktopLockPath)) {
+    throw 'Manifests do aplicativo desktop nao foram encontrados.'
+}
 
 $originalName = Get-LocalConfigValue -Key 'user.name'
 $originalEmail = Get-LocalConfigValue -Key 'user.email'
@@ -241,10 +246,16 @@ try {
         1
     )
     Write-Utf8NoBomFile -Path $versionPath -Content $updatedVersion
-    Invoke-Git -Arguments @('add', '--', 'installer/version.nsh') | Out-Null
+    Invoke-NativeProcess -FileName 'npm.cmd' -Arguments @(
+        'version', $nextVersion, '--no-git-tag-version', '--prefix', 'desktop'
+    ) | Out-Null
+    Invoke-Git -Arguments @('add', '--', 'installer/version.nsh', 'desktop/package.json', 'desktop/package-lock.json') | Out-Null
 
     $stagedFiles = @(Invoke-Git -Arguments @('diff', '--cached', '--name-only'))
-    if ($stagedFiles.Count -ne 1 -or $stagedFiles[0].Trim() -ne 'installer/version.nsh') {
+    $expectedStagedFiles = @('desktop/package-lock.json', 'desktop/package.json', 'installer/version.nsh')
+    $normalizedStagedFiles = @($stagedFiles | ForEach-Object { $_.Trim() } | Sort-Object)
+    if ($normalizedStagedFiles.Count -ne $expectedStagedFiles.Count -or
+        (Compare-Object -ReferenceObject $expectedStagedFiles -DifferenceObject $normalizedStagedFiles).Count -gt 0) {
         throw "Stage de release invalido: $($stagedFiles -join ', ')"
     }
 
@@ -269,8 +280,10 @@ try {
 
     $release = Wait-ForRelease -TagName $releaseTag
     $expectedAssets = @(
-        "PowerShellConfig-Setup-$nextVersion.exe",
-        "PowerShellConfig-Setup-$nextVersion.exe.sha256"
+        "PowerShellConfig-Setup-$nextVersion-win-x64.exe",
+        "PowerShellConfig-Setup-$nextVersion-win-x64.exe.sha256",
+        "PowerShellConfig-Setup-$nextVersion-win-arm64.exe",
+        "PowerShellConfig-Setup-$nextVersion-win-arm64.exe.sha256"
     )
     $assetNames = @($release.assets | ForEach-Object { $_.name })
     $unexpectedAssets = @($assetNames | Where-Object { $expectedAssets -notcontains $_ })

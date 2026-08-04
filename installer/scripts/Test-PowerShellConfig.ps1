@@ -160,10 +160,23 @@ try {
         Assert-Equal -Expected $ExpectedVersion -Actual $versionMatch.Groups[1].Value -Message 'tag e version.nsh devem coincidir'
     }
 
+    $defaultSettings = Get-Content -LiteralPath (Join-Path $repoRoot 'powershell\settings.default.json') -Raw | ConvertFrom-Json -ErrorAction Stop
+    Assert-Equal -Expected 1 -Actual $defaultSettings.schemaVersion -Message 'configuracao visual deve iniciar no schema v1'
+    Assert-Equal -Expected $true -Actual $defaultSettings.startup.enabled -Message 'aplicativo deve iniciar com Windows por padrao'
+    Assert-Equal -Expected 'builtin:takuya' -Actual $defaultSettings.prompt.themeId -Message 'takuya deve permanecer o tema inicial'
+    Assert-Equal -Expected 80 -Actual $defaultSettings.terminal.opacity -Message 'configuracao visual deve refletir opacidade inicial do instalador'
+
+    $desktopPackage = Get-Content -LiteralPath (Join-Path $repoRoot 'desktop\package.json') -Raw | ConvertFrom-Json -ErrorAction Stop
+    Assert-Equal -Expected $versionMatch.Groups[1].Value -Actual $desktopPackage.version -Message 'versao base do desktop e version.nsh devem permanecer alinhadas'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $repoRoot 'desktop\package-lock.json')) -Message 'desktop deve possuir lockfile npm'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $repoRoot 'desktop\assets\icon.ico')) -Message 'desktop deve possuir icone Windows'
+
     $nsiContent = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\PowerShellConfig.nsi') -Raw
     Assert-True -Condition ($nsiContent.Contains('SetCompressor zlib')) -Message 'NSIS deve usar zlib'
     Assert-True -Condition (-not $nsiContent.Contains('taskkill /F /IM java.exe')) -Message 'NSIS nao pode encerrar processos Java globais'
-    Assert-True -Condition ($nsiContent.Contains('PowerShellConfig-Setup-${PRODUCT_VERSION}.exe')) -Message 'nome do artefato deve incluir versao'
+    Assert-True -Condition ($nsiContent.Contains('PowerShellConfig-Setup-${PRODUCT_VERSION}-win-${TARGET_ARCH}.exe')) -Message 'nome do artefato deve incluir versao e arquitetura'
+    Assert-True -Condition ($nsiContent.Contains('File /r "${DESKTOP_PAYLOAD_DIR}\*.*"')) -Message 'payload Electron deve entrar no instalador NSIS principal'
+    Assert-True -Condition ($nsiContent.Contains('--sync-startup')) -Message 'instalador deve sincronizar a inicializacao preservando a preferencia em upgrades'
     Assert-True -Condition ($nsiContent.Contains('RequestExecutionLevel user')) -Message 'instalador deve executar por usuario'
     Assert-True -Condition (([regex]::Matches($nsiContent, [regex]::Escape('RMDir /r "$INSTDIR"'))).Count -eq 1) -Message 'falha de instalacao deve preservar arquivos e backups para recuperacao'
     Assert-True -Condition (([regex]::Matches($nsiContent, 'File "\.\.\\powershell\\fonts\\Hack .*Windows Compatible\.ttf"')).Count -eq 4) -Message 'payload deve conter exatamente quatro fontes Hack NF Windows Compatible'
@@ -172,7 +185,10 @@ try {
     $workflowContent = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release-windows.yml') -Raw
     Assert-True -Condition ($workflowContent.Contains('runs-on: windows-latest')) -Message 'workflow deve compilar no Windows'
     Assert-True -Condition (-not $workflowContent.Contains('ubuntu-latest')) -Message 'workflow nao deve criar job Linux'
-    Assert-True -Condition ($workflowContent.Contains('PowerShellConfig-Setup-${{ steps.version.outputs.VERSION }}.exe.sha256')) -Message 'workflow deve publicar checksum'
+    Assert-True -Condition ($workflowContent.Contains('PowerShellConfig-Setup-${{ steps.version.outputs.VERSION }}-win-x64.exe.sha256')) -Message 'workflow deve publicar checksum x64'
+    Assert-True -Condition ($workflowContent.Contains('PowerShellConfig-Setup-${{ steps.version.outputs.VERSION }}-win-arm64.exe.sha256')) -Message 'workflow deve publicar checksum ARM64'
+    Assert-True -Condition ($workflowContent.Contains('npm ci')) -Message 'workflow deve instalar dependencias Electron por lockfile'
+    Assert-True -Condition ($workflowContent.Contains('smoke-packaged.ps1')) -Message 'workflow deve executar smoke test do Electron empacotado'
     Assert-True -Condition (-not $workflowContent.Contains('workflow_dispatch:')) -Message 'workflow de release deve ser disparado somente por tags'
 
     Write-Host "OK: $script:Passed verificacoes passaram."

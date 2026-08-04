@@ -120,6 +120,20 @@ try {
     $state.ProductVersion = $ProductVersion
     Install-RequiredModules
 
+    $managedConfigDirectory = Join-Path $InstallRoot 'config'
+    $managedThemesDirectory = Join-Path $managedConfigDirectory 'themes'
+    $settingsPath = Join-Path $managedConfigDirectory 'settings.json'
+    $defaultSettingsPath = Join-Path $InstallRoot 'settings.default.json'
+    $activeThemePath = Join-Path $managedThemesDirectory 'active.omp.json'
+    $defaultThemePath = Join-Path $InstallRoot 'takuya.omp.json'
+    New-Item -ItemType Directory -Path $managedThemesDirectory -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $settingsPath)) {
+        Copy-Item -LiteralPath $defaultSettingsPath -Destination $settingsPath -Force
+    }
+    if (-not (Test-Path -LiteralPath $activeThemePath)) {
+        Copy-Item -LiteralPath $defaultThemePath -Destination $activeThemePath -Force
+    }
+
     $profilePath = $PROFILE.CurrentUserCurrentHost
     if (-not $isUpgrade -or $null -eq $state.Profile) {
         $profileExisted = Test-Path -LiteralPath $profilePath

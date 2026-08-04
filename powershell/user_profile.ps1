@@ -3,36 +3,85 @@
 
 [Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
+$powerShellConfigSettingsPath = Join-Path $PSScriptRoot 'config\settings.json'
+$powerShellConfigSettings = $null
+if (Test-Path -LiteralPath $powerShellConfigSettingsPath) {
+    try {
+        $powerShellConfigSettings = Get-Content -LiteralPath $powerShellConfigSettingsPath -Raw -Encoding UTF8 |
+            ConvertFrom-Json -ErrorAction Stop
+        if ($powerShellConfigSettings.schemaVersion -ne 1) {
+            $powerShellConfigSettings = $null
+        }
+    } catch {
+        Write-Warning "PowerShell Config ignorou settings.json invalido: $($_.Exception.Message)"
+        $powerShellConfigSettings = $null
+    }
+}
+
+function Get-PowerShellConfigSetting {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Path,
+        [Parameter(Mandatory = $true)]$DefaultValue
+    )
+
+    $current = $powerShellConfigSettings
+    foreach ($segment in $Path) {
+        if ($null -eq $current) {
+            return $DefaultValue
+        }
+        $property = $current.PSObject.Properties[$segment]
+        if ($null -eq $property) {
+            return $DefaultValue
+        }
+        $current = $property.Value
+    }
+    if ($null -eq $current) { return $DefaultValue }
+    return $current
+}
+
 $openSshPath = Join-Path $env:WINDIR 'System32\OpenSSH\ssh.exe'
 if (Test-Path -LiteralPath $openSshPath) {
     $env:GIT_SSH = $openSshPath
 }
 
-if (Get-Module -ListAvailable -Name posh-git) {
+if ((Get-PowerShellConfigSetting -Path @('modules', 'poshGit') -DefaultValue $true) -and
+    (Get-Module -ListAvailable -Name posh-git)) {
     Import-Module posh-git -ErrorAction SilentlyContinue
 }
 
 $isInteractiveConsole = $Host.Name -eq 'ConsoleHost' -and -not [Console]::IsOutputRedirected
+$psReadLineEnabled = Get-PowerShellConfigSetting -Path @('psReadLine', 'enabled') -DefaultValue $true
 
-if ($isInteractiveConsole -and (Get-Module -ListAvailable -Name PSReadLine)) {
+if ($isInteractiveConsole -and $psReadLineEnabled -and (Get-Module -ListAvailable -Name PSReadLine)) {
     Import-Module PSReadLine -ErrorAction SilentlyContinue
     if (Get-Module -Name PSReadLine) {
-        Set-PSReadLineOption -EditMode Emacs
-        Set-PSReadLineOption -BellStyle None
-        Set-PSReadLineKeyHandler -Chord 'Ctrl+d' -Function DeleteChar
-        Set-PSReadLineOption -PredictionSource History
-        Set-PSReadLineOption -PredictionViewStyle ListView
+        Set-PSReadLineOption -EditMode (Get-PowerShellConfigSetting -Path @('psReadLine', 'editMode') -DefaultValue 'Emacs')
+        Set-PSReadLineOption -BellStyle (Get-PowerShellConfigSetting -Path @('psReadLine', 'bellStyle') -DefaultValue 'None')
+        if (Get-PowerShellConfigSetting -Path @('psReadLine', 'ctrlD') -DefaultValue $true) {
+            Set-PSReadLineKeyHandler -Chord 'Ctrl+d' -Function DeleteChar
+        }
+        $predictionSource = Get-PowerShellConfigSetting -Path @('psReadLine', 'predictionSource') -DefaultValue 'History'
+        Set-PSReadLineOption -PredictionSource $predictionSource -ErrorAction SilentlyContinue
+        if ($predictionSource -ne 'None') {
+            Set-PSReadLineOption -PredictionViewStyle (Get-PowerShellConfigSetting -Path @('psReadLine', 'predictionViewStyle') -DefaultValue 'ListView') -ErrorAction SilentlyContinue
+        }
     }
 }
 
 $ohMyPosh = Get-Command oh-my-posh -ErrorAction SilentlyContinue
-$ohMyPoshTheme = Join-Path $PSScriptRoot 'takuya.omp.json'
-if ($isInteractiveConsole -and $null -ne $ohMyPosh -and (Test-Path -LiteralPath $ohMyPoshTheme)) {
+$ohMyPoshTheme = Join-Path $PSScriptRoot 'config\themes\active.omp.json'
+$fallbackTheme = Join-Path $PSScriptRoot 'takuya.omp.json'
+if (-not (Test-Path -LiteralPath $ohMyPoshTheme)) {
+    $ohMyPoshTheme = $fallbackTheme
+}
+$promptEnabled = Get-PowerShellConfigSetting -Path @('prompt', 'enabled') -DefaultValue $true
+if ($isInteractiveConsole -and $promptEnabled -and $null -ne $ohMyPosh -and (Test-Path -LiteralPath $ohMyPoshTheme)) {
     oh-my-posh init pwsh --config $ohMyPoshTheme | Invoke-Expression
 }
 
 function Import-TerminalIconsIfAvailable {
-    if (-not (Get-Module -Name Terminal-Icons) -and (Get-Module -ListAvailable -Name Terminal-Icons)) {
+    $enabled = Get-PowerShellConfigSetting -Path @('modules', 'terminalIcons') -DefaultValue $true
+    if ($enabled -and -not (Get-Module -Name Terminal-Icons) -and (Get-Module -ListAvailable -Name Terminal-Icons)) {
         Import-Module Terminal-Icons -ErrorAction SilentlyContinue
     }
 }
@@ -42,29 +91,32 @@ function Invoke-DirectoryListing {
     Microsoft.PowerShell.Management\Get-ChildItem @args
 }
 
-Remove-Item Alias:ls -ErrorAction SilentlyContinue
-Remove-Item Alias:dir -ErrorAction SilentlyContinue
-Set-Alias ls Invoke-DirectoryListing
-Set-Alias dir Invoke-DirectoryListing
-Set-Alias ll Invoke-DirectoryListing
+foreach ($aliasName in @('ls', 'dir', 'll')) {
+    if (Get-PowerShellConfigSetting -Path @('aliases', $aliasName) -DefaultValue $true) {
+        Remove-Item "Alias:$aliasName" -ErrorAction SilentlyContinue
+        Set-Alias $aliasName Invoke-DirectoryListing
+    }
+}
 
-if (Get-Command git -ErrorAction SilentlyContinue) {
+if ((Get-PowerShellConfigSetting -Path @('aliases', 'g') -DefaultValue $true) -and (Get-Command git -ErrorAction SilentlyContinue)) {
     Set-Alias g git
 }
 
-if (Get-Command nvim -ErrorAction SilentlyContinue) {
+if ((Get-PowerShellConfigSetting -Path @('aliases', 'vim') -DefaultValue $true) -and (Get-Command nvim -ErrorAction SilentlyContinue)) {
     Set-Alias vim nvim
 }
 
-Set-Alias grep findstr
+if (Get-PowerShellConfigSetting -Path @('aliases', 'grep') -DefaultValue $true) {
+    Set-Alias grep findstr
+}
 
 $gitBinDirectory = Join-Path $env:ProgramFiles 'Git\usr\bin'
 $tigPath = Join-Path $gitBinDirectory 'tig.exe'
 $lessPath = Join-Path $gitBinDirectory 'less.exe'
-if (Test-Path -LiteralPath $tigPath) {
+if ((Get-PowerShellConfigSetting -Path @('aliases', 'tig') -DefaultValue $true) -and (Test-Path -LiteralPath $tigPath)) {
     Set-Alias tig $tigPath
 }
-if (Test-Path -LiteralPath $lessPath) {
+if ((Get-PowerShellConfigSetting -Path @('aliases', 'less') -DefaultValue $true) -and (Test-Path -LiteralPath $lessPath)) {
     Set-Alias less $lessPath
 }
 
@@ -122,7 +174,8 @@ function Show-TerminalHelp {
 }
 
 $firstRunMarker = Join-Path $PSScriptRoot 'state\first-run-complete'
-if ($isInteractiveConsole -and -not (Test-Path -LiteralPath $firstRunMarker)) {
+$showFirstRunHelp = Get-PowerShellConfigSetting -Path @('help', 'showOnFirstRun') -DefaultValue $true
+if ($isInteractiveConsole -and $showFirstRunHelp -and -not (Test-Path -LiteralPath $firstRunMarker)) {
     Show-TerminalHelp
     $markerDirectory = Split-Path -Parent $firstRunMarker
     New-Item -ItemType Directory -Path $markerDirectory -Force | Out-Null

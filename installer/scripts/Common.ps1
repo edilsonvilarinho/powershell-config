@@ -43,7 +43,23 @@ function Read-JsonFile {
     if (-not (Test-Path -LiteralPath $Path)) {
         return $null
     }
-    return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+    $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    try {
+        return $content | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        if ($null -eq ('System.Text.Json.JsonDocument' -as [type])) {
+            throw
+        }
+        $options = [System.Text.Json.JsonDocumentOptions]::new()
+        $options.CommentHandling = [System.Text.Json.JsonCommentHandling]::Skip
+        $options.AllowTrailingCommas = $true
+        $document = [System.Text.Json.JsonDocument]::Parse($content, $options)
+        try {
+            return $document.RootElement.GetRawText() | ConvertFrom-Json -ErrorAction Stop
+        } finally {
+            $document.Dispose()
+        }
+    }
 }
 
 function Get-ManagedProfileBlock {
@@ -287,6 +303,14 @@ function Restore-TerminalSettings {
         startingDirectory = $null
         suppressApplicationTitle = $true
         useAcrylic = $false
+    }
+    if ($null -ne $State.PSObject.Properties['ManagedValues'] -and $null -ne $State.ManagedValues) {
+        foreach ($name in @('colorScheme', 'elevate', 'font', 'opacity', 'startingDirectory', 'suppressApplicationTitle', 'useAcrylic')) {
+            $managedProperty = $State.ManagedValues.PSObject.Properties[$name]
+            if ($null -ne $managedProperty) {
+                $managedDefaults[$name] = $managedProperty.Value
+            }
+        }
     }
     $snapshotNames = [ordered]@{
         colorScheme = 'ColorScheme'

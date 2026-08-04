@@ -8,12 +8,20 @@ Unicode true
 !include "version.nsh"
 !endif
 
+!ifndef TARGET_ARCH
+!define TARGET_ARCH "x64"
+!endif
+
+!ifndef DESKTOP_PAYLOAD_DIR
+!define DESKTOP_PAYLOAD_DIR "..\desktop\dist-build\x64\win-unpacked"
+!endif
+
 !define PRODUCT_NAME "PowerShell Config"
 !define PRODUCT_PUBLISHER "edilsonvilarinho"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
-OutFile "..\dist\PowerShellConfig-Setup-${PRODUCT_VERSION}.exe"
+OutFile "..\dist\PowerShellConfig-Setup-${PRODUCT_VERSION}-win-${TARGET_ARCH}.exe"
 InstallDir "$LOCALAPPDATA\PowerShellConfig"
 InstallDirRegKey HKCU "${PRODUCT_UNINST_KEY}" "InstallLocation"
 RequestExecutionLevel user
@@ -30,9 +38,8 @@ VIAddVersionKey /LANG=1046 "LegalCopyright" "Copyright (c) ${PRODUCT_PUBLISHER}"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN "$LOCALAPPDATA\Microsoft\WindowsApps\wt.exe"
-!define MUI_FINISHPAGE_RUN_PARAMETERS "-p PowerShell"
-!define MUI_FINISHPAGE_RUN_TEXT "Abrir o Windows Terminal"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\app\PowerShell Config.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "Abrir o PowerShell Config"
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -44,11 +51,20 @@ VIAddVersionKey /LANG=1046 "LegalCopyright" "Copyright (c) ${PRODUCT_PUBLISHER}"
 Section "PowerShell Config" SEC_APP
     SectionIn RO
     SetShellVarContext current
+    IfFileExists "$INSTDIR\app\PowerShell Config.exe" 0 desktopStopped
+        DetailPrint "Encerrando a versao anterior do PowerShell Config..."
+        ExecWait '"$INSTDIR\app\PowerShell Config.exe" --shutdown' $1
+        Sleep 1200
+desktopStopped:
     SetOutPath "$INSTDIR"
 
     File /oname=profile.ps1 "..\powershell\user_profile.ps1"
     File /oname=takuya.omp.json "..\powershell\takuya.omp.json"
+    File /oname=settings.default.json "..\powershell\settings.default.json"
     File /oname=terminal-fragment.json "terminal-fragment.json"
+
+    SetOutPath "$INSTDIR\app"
+    File /r "${DESKTOP_PAYLOAD_DIR}\*.*"
 
     SetOutPath "$INSTDIR\fonts"
     File "..\powershell\fonts\Hack Regular Nerd Font Complete Windows Compatible.ttf"
@@ -70,6 +86,13 @@ Section "PowerShell Config" SEC_APP
         Abort
     ${EndIf}
 
+    DetailPrint "Registrando o PowerShell Config para iniciar com o Windows..."
+    ExecWait '"$INSTDIR\app\PowerShell Config.exe" --sync-startup' $1
+    ${If} $1 != 0
+        MessageBox MB_OK|MB_ICONSTOP "A configuracao foi instalada, mas o aplicativo nao conseguiu registrar a inicializacao com o Windows. Codigo: $1"
+        Abort
+    ${EndIf}
+
     WriteUninstaller "$INSTDIR\Uninstall.exe"
     WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
     WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
@@ -81,12 +104,17 @@ Section "PowerShell Config" SEC_APP
     WriteRegDWORD HKCU "${PRODUCT_UNINST_KEY}" "NoRepair" 1
 
     CreateDirectory "$SMPROGRAMS\PowerShell Config"
+    CreateShortcut "$SMPROGRAMS\PowerShell Config\PowerShell Config.lnk" "$INSTDIR\app\PowerShell Config.exe"
     CreateShortcut "$SMPROGRAMS\PowerShell Config\Windows Terminal.lnk" "$LOCALAPPDATA\Microsoft\WindowsApps\wt.exe" "-p PowerShell"
     CreateShortcut "$SMPROGRAMS\PowerShell Config\Desinstalar.lnk" "$INSTDIR\Uninstall.exe"
 SectionEnd
 
 Section "Uninstall"
     SetShellVarContext current
+    DetailPrint "Encerrando o PowerShell Config..."
+    ExecWait '"$INSTDIR\app\PowerShell Config.exe" --shutdown' $1
+    Sleep 1200
+    ExecWait '"$INSTDIR\app\PowerShell Config.exe" --set-startup=disabled' $1
     DetailPrint "Restaurando configuracoes anteriores..."
 
     IfFileExists "$LOCALAPPDATA\Microsoft\WindowsApps\pwsh.exe" usePwsh checkProgramFilesPwsh
@@ -106,6 +134,7 @@ uninstallResult:
         Abort
     ${EndIf}
 
+    Delete "$SMPROGRAMS\PowerShell Config\PowerShell Config.lnk"
     Delete "$SMPROGRAMS\PowerShell Config\Windows Terminal.lnk"
     Delete "$SMPROGRAMS\PowerShell Config\Desinstalar.lnk"
     RMDir "$SMPROGRAMS\PowerShell Config"
