@@ -57,11 +57,19 @@ Por decisao de configuracao deste projeto, `profiles.defaults.elevate` fica habi
 
 No modo silencioso, a deteccao do Windows Terminal encerra imediatamente o instalador com codigo diferente de zero, sem exibir dialogo e sem extrair arquivos. O instalador nunca encerra processos ou sessoes do Terminal automaticamente.
 
-O log operacional fica em:
+Cada tentativa gera um log operacional UTF-8 separado, com data, PID, etapas, duracoes, saidas de comandos, hashes e diagnostico completo de falhas:
+
+```text
+%LOCALAPPDATA%\PowerShellConfig\logs\install-YYYYMMDD-HHmmss-pidNNNN.log
+```
+
+O arquivo abaixo sempre espelha a tentativa mais recente para facilitar suporte e coleta:
 
 ```text
 %LOCALAPPDATA%\PowerShellConfig-install.log
 ```
+
+Os logs nao gravam o conteudo do perfil, do `settings.json` ou de variaveis de ambiente. Em uma falha, o instalador informa o caminho exato da execucao e preserva arquivos, estado e backups para diagnostico.
 
 ## Preservacao e rollback
 

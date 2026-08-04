@@ -420,6 +420,57 @@ function Restore-DefaultTerminal {
     }
 }
 
+function Sync-ManagedFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+
+    if (-not (Test-Path -LiteralPath $SourcePath)) {
+        throw "Arquivo ausente no payload: $SourcePath"
+    }
+
+    $sourceHash = Get-FileSha256 -Path $SourcePath
+    $targetHash = Get-FileSha256 -Path $TargetPath
+    if ($null -ne $targetHash -and $sourceHash -eq $targetHash) {
+        return [pscustomobject]@{
+            Action = 'Skip'
+            SourceHash = $sourceHash
+            PreviousTargetHash = $targetHash
+            InstalledHash = $targetHash
+        }
+    }
+
+    try {
+        Copy-Item -LiteralPath $SourcePath -Destination $TargetPath -Force
+    } catch {
+        throw [System.IO.IOException]::new("Falha ao copiar arquivo gerenciado. Origem: $SourcePath. Destino: $TargetPath. $($_.Exception.Message)", $_.Exception)
+    }
+
+    return [pscustomobject]@{
+        Action = 'Copy'
+        SourceHash = $sourceHash
+        PreviousTargetHash = $targetHash
+        InstalledHash = Get-FileSha256 -Path $TargetPath
+    }
+}
+
+function Set-ManagedFontStateEntry {
+    param(
+        [AllowNull()][object[]]$ExistingStates,
+        [Parameter(Mandatory = $true)]$FontState
+    )
+
+    $statesByFile = [ordered]@{}
+    foreach ($existingState in @($ExistingStates)) {
+        if ($null -ne $existingState -and -not [string]::IsNullOrWhiteSpace($existingState.File)) {
+            $statesByFile[$existingState.File] = $existingState
+        }
+    }
+    $statesByFile[$FontState.File] = $FontState
+    return @($statesByFile.GetEnumerator() | ForEach-Object { $_.Value })
+}
+
 function Get-FontDefinitions {
     return @(
         [pscustomobject]@{ File = 'Hack Regular Nerd Font Complete Windows Compatible.ttf'; RegistryName = 'Hack NF (TrueType)' },

@@ -3,7 +3,9 @@ param([string]$ExpectedVersion)
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $commonPath = Join-Path $PSScriptRoot 'Common.ps1'
+$loggingPath = Join-Path $PSScriptRoot 'InstallerLogging.ps1'
 . $commonPath
+. $loggingPath
 
 $script:Passed = 0
 
@@ -128,11 +130,69 @@ try {
     }
     Assert-True -Condition $invalidFailed -Message 'JSON invalido deve interromper o merge'
 
+    $managedFileSource = Join-Path $tempRoot 'managed-file-source.txt'
+    $managedFileTarget = Join-Path $tempRoot 'managed-file-target.txt'
+    Write-Utf8NoBomFile -Path $managedFileSource -Content 'conteudo identico'
+    Write-Utf8NoBomFile -Path $managedFileTarget -Content 'conteudo identico'
+    $lockedTarget = [System.IO.File]::Open($managedFileTarget, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $skipResult = Sync-ManagedFile -SourcePath $managedFileSource -TargetPath $managedFileTarget
+        Assert-Equal -Expected 'Skip' -Actual $skipResult.Action -Message 'arquivo identico e bloqueado deve ser ignorado sem copia'
+    } finally {
+        $lockedTarget.Dispose()
+    }
+
+    Write-Utf8NoBomFile -Path $managedFileTarget -Content 'conteudo divergente preservado'
+    $lockedTarget = [System.IO.File]::Open($managedFileTarget, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    $copyFailure = $null
+    try {
+        Sync-ManagedFile -SourcePath $managedFileSource -TargetPath $managedFileTarget | Out-Null
+    } catch {
+        $copyFailure = $_
+    } finally {
+        $lockedTarget.Dispose()
+    }
+    Assert-True -Condition ($null -ne $copyFailure) -Message 'arquivo divergente e bloqueado deve falhar explicitamente'
+    Assert-True -Condition ($copyFailure.Exception.Message.Contains($managedFileSource) -and $copyFailure.Exception.Message.Contains($managedFileTarget)) -Message 'falha de copia deve identificar origem e destino'
+    Assert-Equal -Expected 'conteudo divergente preservado' -Actual (Get-Content -LiteralPath $managedFileTarget -Raw) -Message 'falha de copia nao pode alterar o destino bloqueado'
+
+    $existingFontStates = @(
+        [pscustomobject]@{ File = 'font-1.ttf'; InstalledHash = 'hash-1' },
+        [pscustomobject]@{ File = 'font-2.ttf'; InstalledHash = 'hash-2' },
+        [pscustomobject]@{ File = 'font-3.ttf'; InstalledHash = 'hash-3' },
+        [pscustomobject]@{ File = 'font-4.ttf'; InstalledHash = 'hash-4' }
+    )
+    $updatedFontStates = @(Set-ManagedFontStateEntry -ExistingStates $existingFontStates -FontState ([pscustomobject]@{ File = 'font-2.ttf'; InstalledHash = 'hash-updated' }))
+    Assert-Equal -Expected 4 -Actual $updatedFontStates.Count -Message 'atualizacao parcial de fonte deve preservar todas as entradas do estado'
+    Assert-Equal -Expected 'hash-updated' -Actual (@($updatedFontStates | Where-Object File -eq 'font-2.ttf')[0].InstalledHash) -Message 'estado deve substituir somente a fonte processada'
+    $recoveredFontStates = @(Set-ManagedFontStateEntry -ExistingStates @($existingFontStates[0]) -FontState $existingFontStates[1])
+    Assert-Equal -Expected 2 -Actual $recoveredFontStates.Count -Message 'estado previamente truncado deve aceitar a proxima fonte sem perder a existente'
+
+    $testLogPath = Join-Path $tempRoot 'logs\install-test-session.log'
+    $testLatestLogPath = Join-Path $tempRoot 'PowerShellConfig-install.log'
+    Initialize-InstallerLogging -LogPath $testLogPath -LatestLogPath $testLatestLogPath -SessionId 'test-session' -Operation install -ResetLatest | Out-Null
+    $ansiEscape = [char]27
+    Write-InstallerLog -Stage 'test.encoding' -Message "atualização disponível ${ansiEscape}[31merro${ansiEscape}[0m" -NoConsole
+    try {
+        throw [System.InvalidOperationException]::new('falha rastreavel')
+    } catch {
+        Write-InstallerErrorRecord -ErrorRecord $_ -Stage 'test.error'
+    }
+    $testLogContent = [System.IO.File]::ReadAllText($testLogPath, [System.Text.UTF8Encoding]::new($false))
+    $testLatestLogContent = [System.IO.File]::ReadAllText($testLatestLogPath, [System.Text.UTF8Encoding]::new($false))
+    $testLogBytes = [System.IO.File]::ReadAllBytes($testLogPath)
+    Assert-True -Condition ($testLogContent.Contains('atualização disponível erro')) -Message 'log deve preservar UTF-8 e remover sequencias ANSI'
+    Assert-True -Condition (-not $testLogContent.Contains($ansiEscape)) -Message 'log nao pode manter caracteres de escape ANSI'
+    Assert-True -Condition ($testLogContent.Contains('exceptionType=System.InvalidOperationException') -and $testLogContent.Contains('source file=') -and $testLogContent.Contains('stack=')) -Message 'log de erro deve manter tipo, origem e stack'
+    Assert-Equal -Expected $testLogContent -Actual $testLatestLogContent -Message 'arquivo mais recente deve espelhar o log da execucao'
+    Assert-True -Condition (-not ($testLogBytes.Length -ge 3 -and $testLogBytes[0] -eq 0xEF -and $testLogBytes[1] -eq 0xBB -and $testLogBytes[2] -eq 0xBF)) -Message 'log deve usar UTF-8 sem BOM'
+
     foreach ($scriptPath in @(
         'powershell\user_profile.ps1',
         'installer\scripts\Common.ps1',
         'installer\scripts\Configure-PowerShellConfig.ps1',
         'installer\scripts\Install-PowerShellConfig.ps1',
+        'installer\scripts\InstallerLogging.ps1',
         'installer\scripts\Uninstall-PowerShellConfig.ps1'
     )) {
         $tokens = $null
@@ -180,6 +240,10 @@ try {
     Assert-True -Condition (-not ($nsiContent -match '(?i)\b(?:taskkill|Stop-Process)\b.*WindowsTerminal')) -Message 'NSIS nao pode encerrar o Windows Terminal automaticamente'
     Assert-True -Condition ($nsiContent.Contains('PowerShellConfig-Setup-${PRODUCT_VERSION}-win-${TARGET_ARCH}.exe')) -Message 'nome do artefato deve incluir versao e arquitetura'
     Assert-True -Condition ($nsiContent.Contains('File /r "${DESKTOP_PAYLOAD_DIR}\*.*"')) -Message 'payload Electron deve entrar no instalador NSIS principal'
+    Assert-True -Condition ($nsiContent.Contains('File "scripts\InstallerLogging.ps1"')) -Message 'logger compartilhado deve entrar no payload do instalador'
+    Assert-True -Condition ($nsiContent.Contains('-LogPath "$InstallLogPath" -LatestLogPath "$LatestInstallLogPath" -SessionId "$InstallSessionId"')) -Message 'NSIS deve propagar a sessao de log ao PowerShell'
+    Assert-True -Condition ($nsiContent.Contains('logs\install-$InstallSessionId.log')) -Message 'NSIS deve criar um log separado por execucao'
+    Assert-True -Condition ($nsiContent.Contains('Function WriteInstallLog')) -Message 'NSIS deve registrar suas proprias etapas no log operacional'
     Assert-True -Condition ($nsiContent.Contains('--sync-startup')) -Message 'instalador deve sincronizar a inicializacao preservando a preferencia em upgrades'
     Assert-True -Condition ($nsiContent.Contains('RequestExecutionLevel user')) -Message 'instalador deve executar por usuario'
     Assert-True -Condition (([regex]::Matches($nsiContent, '(?im)^\s*nsExec::ExecToLog.*(?:powershell|pwsh)\.exe')).Count -eq 4) -Message 'scripts PowerShell de instalacao e desinstalacao devem executar sem abrir console'
@@ -195,6 +259,11 @@ try {
 
     $installScriptContent = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\scripts\Install-PowerShellConfig.ps1') -Raw
     Assert-True -Condition ($installScriptContent.Contains('Get-Process -Name WindowsTerminal')) -Message 'script de instalacao deve manter validacao defensiva contra corrida apos o preflight'
+    $configureScriptContent = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\scripts\Configure-PowerShellConfig.ps1') -Raw
+    Assert-True -Condition ($configureScriptContent.Contains('SKIP arquivo identico; copia nao executada')) -Message 'configuracao deve evitar sobrescrever fonte identica'
+    Assert-True -Condition ($configureScriptContent.Contains('$primaryError = $_')) -Message 'configuracao deve preservar a falha primaria antes do rollback'
+    Assert-True -Condition ($configureScriptContent.Contains('rollbackExitCode')) -Message 'configuracao deve registrar o codigo de saida do rollback'
+    Assert-True -Condition ($configureScriptContent.Contains("SKIP upgrade detectado; estado gerenciado anterior preservado")) -Message 'falha de upgrade nao pode executar rollback integral da instalacao anterior'
 
     $workflowContent = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release-windows.yml') -Raw
     Assert-True -Condition ($workflowContent.Contains('runs-on: windows-latest')) -Message 'workflow deve compilar no Windows'
