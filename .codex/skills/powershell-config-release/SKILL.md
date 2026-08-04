@@ -1,0 +1,35 @@
+---
+name: powershell-config-release
+description: Publicar uma release patch, minor ou major do instalador Windows do repositorio powershell-config. Usar quando Codex precisar versionar, validar, criar tag, disparar o GitHub Actions Release Windows Installer e confirmar o EXE e SHA-256 publicados no GitHub Release.
+---
+
+# PowerShell Config Release
+
+Publicar somente depois de pedido explicito do usuario.
+
+## Fluxo
+
+1. Ler `README.md`, `installer/version.nsh`, `installer/PowerShellConfig.nsi` e `.github/workflows/release-windows.yml`.
+2. Exigir tipo de release `patch`, `minor` ou `major`.
+3. Confirmar que `master` esta limpa e alinhada com `origin/master`.
+4. Preferir o script deterministico:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\.codex\skills\powershell-config-release\scripts\release_powershell_config.ps1 -RepoPath C:\Users\edils\workspace\powershell-config -ReleaseType patch
+```
+
+5. Para validar sem alterar ou publicar:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\.codex\skills\powershell-config-release\scripts\release_powershell_config.ps1 -RepoPath C:\Users\edils\workspace\powershell-config -ReleaseType patch -ValidateOnly
+```
+
+6. Relatar versao, commit, tag, workflow, release e URLs dos dois assets.
+
+## Guardrails
+
+- Nao liberar worktree suja.
+- Nao criar commit, tag ou push sem autorizacao explicita.
+- Nao criar outra tag se a falha ocorreu depois do push; inspecionar o workflow existente.
+- Considerar a release concluida somente com `PowerShellConfig-Setup-X.Y.Z.exe` e seu `.sha256` publicados.
+- Nao alterar configuracao Git global; o script usa `safe.directory` por comando e restaura a identidade local.

@@ -1,0 +1,150 @@
+name: Release Windows Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    env:
+      WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: version
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Invalid release tag: $env:GITHUB_REF"
+          }
+          "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Validate installer sources
+        shell: pwsh
+        run: |
+          .\installer\scripts\Test-PowerShellConfig.ps1 -ExpectedVersion "${{ steps.version.outputs.VERSION }}"
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = "${{ steps.version.outputs.VERSION }}"
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+
+          $makensis = @(
+            'C:\Program Files (x86)\NSIS\makensis.exe',
+            'C:\Program Files\NSIS\makensis.exe'
+          ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if ($null -eq $makensis) {
+            throw 'makensis.exe was not found after installing NSIS.'
+          }
+
+          Push-Location installer
+          try {
+            & $makensis "/DPRODUCT_VERSION=$version" 'PowerShellConfig.nsi'
+            if ($LASTEXITCODE -ne 0) {
+              throw "NSIS failed with exit code $LASTEXITCODE."
+            }
+          } finally {
+            Pop-Location
+          }
+
+          $installer = "dist\PowerShellConfig-Setup-$version.exe"
+          if (-not (Test-Path -LiteralPath $installer)) {
+            throw "Expected installer was not generated: $installer"
+          }
+
+      - name: Sign installer when certificate is configured
+        if: ${{ env.WINDOWS_CERTIFICATE_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $installer = "dist\PowerShellConfig-Setup-$version.exe"
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'powershell-config-signing.pfx'
+
+          try {
+            [System.IO.File]::WriteAllBytes(
+              $certificatePath,
+              [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
+            )
+
+            $kitsRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+            $signtool = Get-ChildItem -Path $kitsRoot -Filter signtool.exe -Recurse -File |
+              Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if ($null -eq $signtool) {
+              throw 'signtool.exe was not found on the runner.'
+            }
+
+            $arguments = @('sign', '/fd', 'SHA256', '/f', $certificatePath)
+            if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+              $arguments += @('/p', $env:WINDOWS_CERTIFICATE_PASSWORD)
+            }
+            if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_TIMESTAMP_URL)) {
+              $arguments += @('/tr', $env:WINDOWS_TIMESTAMP_URL, '/td', 'SHA256')
+            }
+            $arguments += $installer
+
+            & $signtool.FullName @arguments
+            if ($LASTEXITCODE -ne 0) {
+              throw "signtool failed with exit code $LASTEXITCODE."
+            }
+          } finally {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Generate checksum
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $installer = Get-Item "dist\PowerShellConfig-Setup-$version.exe"
+          $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *$($installer.Name)" |
+            Set-Content -LiteralPath "$($installer.FullName).sha256" -Encoding ascii
+          Get-ChildItem dist | Format-Table Name,Length
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: powershell-config-windows-${{ steps.version.outputs.VERSION }}
+          path: |
+            dist/PowerShellConfig-Setup-${{ steps.version.outputs.VERSION }}.exe
+            dist/PowerShellConfig-Setup-${{ steps.version.outputs.VERSION }}.exe.sha256
+          if-no-files-found: error
+
+      - name: Generate release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          .\installer\scripts\New-ReleaseNotes.ps1 -CurrentTag $env:GITHUB_REF_NAME -OutputPath $notesPath
+          Get-Content -LiteralPath $notesPath
+          "NOTES_PATH=$notesPath" >> $env:GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: ${{ steps.notes.outputs.NOTES_PATH }}
+          files: |
+            dist/PowerShellConfig-Setup-${{ steps.version.outputs.VERSION }}.exe
+            dist/PowerShellConfig-Setup-${{ steps.version.outputs.VERSION }}.exe.sha256
+          fail_on_unmatched_files: true

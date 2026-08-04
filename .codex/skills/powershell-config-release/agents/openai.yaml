@@ -1,0 +1,4 @@
+interface:
+  display_name: "PowerShell Config Release"
+  short_description: "Publica o instalador Windows versionado"
+  default_prompt: "Use $powershell-config-release para publicar uma release versionada do instalador Windows."

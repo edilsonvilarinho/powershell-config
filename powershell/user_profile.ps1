@@ -1,153 +1,130 @@
-# ==========================================
-# 1. CONFIGURAÇÕES BÁSICAS E VARIÁVEIS
-# ==========================================
-[console]::InputEncoding = [console]::OutputEncoding = New-Object System.Text.UTF8Encoding
-$env:GIT_SSH  = "C:\Windows\system32\OpenSSH\ssh.exe"
-$user_profile = Join-Path $PSScriptRoot ".\user_profile.ps1"
-$omp_config   = Join-Path $PSScriptRoot ".\tokyo.omp.json"
+# Perfil gerenciado pelo PowerShell Config.
+# Dependencias sao instaladas pelo instalador; este arquivo nunca baixa software.
 
-# ==========================================
-# 2. MÓDULOS E OH MY POSH
-# ==========================================
-Import-Module posh-git
-Import-Module PSReadLine
+[Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
-try {
-   oh-my-posh init pwsh --config $omp_config | Invoke-Expression
-}
-catch {
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://ohmyposh.dev/install.ps1'))
-    oh-my-posh init pwsh --config $omp_config | Invoke-Expression
+$openSshPath = Join-Path $env:WINDIR 'System32\OpenSSH\ssh.exe'
+if (Test-Path -LiteralPath $openSshPath) {
+    $env:GIT_SSH = $openSshPath
 }
 
-function Ensure-TerminalIcons {
-    if (-not (Get-Module Terminal-Icons) -and (Get-Module -ListAvailable Terminal-Icons)) {
-        Import-Module Terminal-Icons
+if (Get-Module -ListAvailable -Name posh-git) {
+    Import-Module posh-git -ErrorAction SilentlyContinue
+}
+
+$isInteractiveConsole = $Host.Name -eq 'ConsoleHost' -and -not [Console]::IsOutputRedirected
+
+if ($isInteractiveConsole -and (Get-Module -ListAvailable -Name PSReadLine)) {
+    Import-Module PSReadLine -ErrorAction SilentlyContinue
+    if (Get-Module -Name PSReadLine) {
+        Set-PSReadLineOption -EditMode Emacs
+        Set-PSReadLineOption -BellStyle None
+        Set-PSReadLineKeyHandler -Chord 'Ctrl+d' -Function DeleteChar
+        Set-PSReadLineOption -PredictionSource History
+        Set-PSReadLineOption -PredictionViewStyle ListView
     }
 }
 
-# ==========================================
-# 3. CONFIGURAÇÕES DO PSREADLINE
-# ==========================================
-Set-PSReadLineOption -EditMode Emacs
-Set-PSReadLineOption -BellStyle None
-Set-PSReadLineKeyHandler -Chord 'Ctrl+d' -Function DeleteChar
-
-if ($Host.UI.PSObject.Properties.Name -contains 'SupportsVirtualTerminal' -and $Host.UI.SupportsVirtualTerminal -and -not [Console]::IsOutputRedirected) {
-    Set-PSReadLineOption -PredictionSource History
-    Set-PSReadLineOption -PredictionViewStyle ListView
+$ohMyPosh = Get-Command oh-my-posh -ErrorAction SilentlyContinue
+$ohMyPoshTheme = Join-Path $PSScriptRoot 'takuya.omp.json'
+if ($isInteractiveConsole -and $null -ne $ohMyPosh -and (Test-Path -LiteralPath $ohMyPoshTheme)) {
+    oh-my-posh init pwsh --config $ohMyPoshTheme | Invoke-Expression
 }
 
-# ==========================================
-# 4. ALIASES CUSTOMIZADOS
-# ==========================================
-Set-Alias g git
-Set-Alias vim nvim
-Set-Alias grep findstr
-Set-Alias tig 'C:\Program Files\Git\usr\bin\tig.exe'
-Set-Alias less 'C:\Program Files\Git\usr\bin\less.exe'
+function Import-TerminalIconsIfAvailable {
+    if (-not (Get-Module -Name Terminal-Icons) -and (Get-Module -ListAvailable -Name Terminal-Icons)) {
+        Import-Module Terminal-Icons -ErrorAction SilentlyContinue
+    }
+}
 
-# Integração do ls/dir com o Terminal-Icons
-Remove-Item Alias:ls -ErrorAction SilentlyContinue
-Remove-Item Alias:dir -ErrorAction SilentlyContinue
 function Invoke-DirectoryListing {
-    Ensure-TerminalIcons
+    Import-TerminalIconsIfAvailable
     Microsoft.PowerShell.Management\Get-ChildItem @args
 }
+
+Remove-Item Alias:ls -ErrorAction SilentlyContinue
+Remove-Item Alias:dir -ErrorAction SilentlyContinue
 Set-Alias ls Invoke-DirectoryListing
 Set-Alias dir Invoke-DirectoryListing
 Set-Alias ll Invoke-DirectoryListing
 
-# ==========================================
-# 5. UTILITÁRIOS DO SISTEMA
-# ==========================================
-function which ($command) {
-  Get-Command -Name $command -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -ErrorAction SilentlyContinue
+if (Get-Command git -ErrorAction SilentlyContinue) {
+    Set-Alias g git
+}
+
+if (Get-Command nvim -ErrorAction SilentlyContinue) {
+    Set-Alias vim nvim
+}
+
+Set-Alias grep findstr
+
+$gitBinDirectory = Join-Path $env:ProgramFiles 'Git\usr\bin'
+$tigPath = Join-Path $gitBinDirectory 'tig.exe'
+$lessPath = Join-Path $gitBinDirectory 'less.exe'
+if (Test-Path -LiteralPath $tigPath) {
+    Set-Alias tig $tigPath
+}
+if (Test-Path -LiteralPath $lessPath) {
+    Set-Alias less $lessPath
+}
+
+function which {
+    param([Parameter(Mandatory = $true, Position = 0)][string]$Command)
+
+    Get-Command -Name $Command -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty Path -ErrorAction SilentlyContinue
 }
 
 Remove-Alias history -ErrorAction SilentlyContinue
 function history {
-    param ([Parameter()][Alias("c")][Switch]$Clear)
-    if ($Clear){
+    param([Alias('c')][switch]$Clear)
+
+    if ($Clear) {
         Clear-History
-        [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
+        if ('Microsoft.PowerShell.PSConsoleReadLine' -as [type]) {
+            [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
+        }
         return
     }
+
     Get-History
 }
 
 function lastBootUpTime {
-    (get-date) - (gcim Win32_OperatingSystem).LastBootUpTime
+    (Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
 }
 
-function listFunctions {
-    Get-Content $user_profile | Select-String -Pattern "function\s+([^\s{]+)" | Foreach-Object { $_.Matches.Groups[1].Value }
+function Show-TerminalHelp {
+    $helpText = @'
+# Ambiente PowerShell
+
+## Atalhos
+
+* `g`: Git
+* `vim`: Neovim
+* `grep`: findstr
+* `tig`: navegador Git do Git for Windows
+* `less`: paginador do Git for Windows
+* `ls`, `dir`, `ll`: listagem com Terminal-Icons
+
+## Utilitarios
+
+* `history -c`: limpa o historico da sessao e do PSReadLine
+* `lastBootUpTime`: informa o tempo desde a ultima inicializacao
+* `which <comando>`: informa o caminho do executavel
+'@
+
+    if (Get-Command Show-Markdown -ErrorAction SilentlyContinue) {
+        $helpText | Show-Markdown
+    } else {
+        Write-Host $helpText
+    }
 }
 
-# ==========================================
-# 6. GERENCIADORES DE AMBIENTE (JAVA E CLAUDE)
-# ==========================================
-#function j8 {
-#    $env:JAVA_HOME = "C:\Program Files\java\jdk1.8.0_202"
-#    $env:Path = "$env:JAVA_HOME\bin;" + $env:Path
-#    Write-Host "Java 8 Ativo" -ForegroundColor Yellow
-#    java -version
-#}
-
-#function j21 {
-#    $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot"
-#    $env:Path = "$env:JAVA_HOME\bin;" + $env:Path
-#    Write-Host "Java 21 Ativo" -ForegroundColor Green
-#    java -version
-#}
-
-function contapessoal {
-    Remove-Item Env:\CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
-    Write-Host "Claude Conta 1 (Principal) Ativa" -ForegroundColor Yellow
+$firstRunMarker = Join-Path $PSScriptRoot 'state\first-run-complete'
+if ($isInteractiveConsole -and -not (Test-Path -LiteralPath $firstRunMarker)) {
+    Show-TerminalHelp
+    $markerDirectory = Split-Path -Parent $firstRunMarker
+    New-Item -ItemType Directory -Path $markerDirectory -Force | Out-Null
+    [System.IO.File]::WriteAllText($firstRunMarker, (Get-Date).ToString('O'), [System.Text.UTF8Encoding]::new($false))
 }
-
-function contaempresa {
-    $env:CLAUDE_CONFIG_DIR = "$HOME\.claude-conta2"
-    Write-Host "Claude Conta 2 (Secundária) Ativa" -ForegroundColor Green
-}
-
-# ==========================================
-# 7. MENU DE AJUDA
-# ==========================================
-function help {
-    @"
-# 🛠️ Meu Ambiente PowerShell
-
-## 🚀 Atalhos e Aliases
-* **g**: git
-* **vim**: nvim
-* **grep**: findstr
-* **tig**: Git Tig
-* **less**: less
-* **ls / dir / ll**: Listagem de diretórios com ícones automáticos
-
-## ☕ Java (Alternância)
-* **j8**: Ativa o Java 8 (jdk1.8.0_202)
-* **j21**: Ativa o Java 21 (jdk-21.0.10.7)
-
-## 🤖 Claude Code (Contas)
-* **contapessoal**: Usa a conta Principal (Padrão)
-* **contaempresa**: Usa a conta Secundária (.claude-conta2)
-
-## 🛠️ Comandos e Utilitários
-* **history -c**: Limpa o histórico do terminal e do PSReadLine
-* **lastBootUpTime**: Mostra o tempo de atividade do sistema desde o último boot
-* **listFunctions**: Lista todas as funções criadas neste arquivo de perfil
-* **which <comando>**: Retorna o caminho do executável do comando especificado
-
-## ⌨️ Teclas de Atalho (PSReadLine)
-* **Ctrl+d**: Deleta o caractere atual
-
-"@ | Show-Markdown
-}
-
-
-# Limpa a tela (opcional) e chama a função help ao iniciar
-Clear-Host
-help
