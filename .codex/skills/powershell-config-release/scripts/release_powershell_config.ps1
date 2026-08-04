@@ -246,7 +246,11 @@ try {
         1
     )
     Write-Utf8NoBomFile -Path $versionPath -Content $updatedVersion
-    Invoke-NativeProcess -FileName 'npm.cmd' -Arguments @(
+    $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    if ($null -eq $npmCommand) {
+        throw 'npm.cmd nao foi encontrado no PATH.'
+    }
+    Invoke-NativeProcess -FileName $npmCommand.Source -Arguments @(
         'version', $nextVersion, '--no-git-tag-version', '--prefix', 'desktop'
     ) | Out-Null
     Invoke-Git -Arguments @('add', '--', 'installer/version.nsh', 'desktop/package.json', 'desktop/package-lock.json') | Out-Null
