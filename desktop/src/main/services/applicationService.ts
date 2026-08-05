@@ -179,7 +179,7 @@ export class ApplicationService {
       writeAtomic(this.paths.terminalSettingsPath, nextTerminalContent);
       if (nextStateContent) writeAtomic(this.paths.statePath, nextStateContent);
       setLaunchAtStartup(nextSettings.startup.enabled);
-      if (!currentSettings.help.showOnFirstRun && nextSettings.help.showOnFirstRun) {
+      if (nextSettings.help.showOnFirstRun) {
         fs.rmSync(path.join(this.paths.installRoot, 'state', 'first-run-complete'), { force: true });
       }
       appendLog(this.paths.logPath, `Configurações aplicadas. revision=${this.revision()}`);
