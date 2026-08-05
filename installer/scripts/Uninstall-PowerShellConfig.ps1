@@ -120,6 +120,25 @@ try {
     }
     Invoke-InstallerLoggedStep -Stage "$operation.fonts.notification" -Action { Send-FontChangeNotification } | Out-Null
 
+    Invoke-InstallerLoggedStep -Stage "$operation.managedConfig" -Action {
+        $managedConfigProperty = $state.PSObject.Properties['ManagedConfig']
+        $managedConfig = if ($null -ne $managedConfigProperty) { $managedConfigProperty.Value } else { $null }
+        if ($RollbackOnly -and $null -ne $managedConfig) {
+            if (Remove-ManagedFileIfPristine -Path $managedConfig.SettingsPath -InstalledHash $managedConfig.SettingsInstalledHash -OriginalExisted ([bool]$managedConfig.SettingsOriginalExisted)) {
+                Write-InstallerLog -Stage "$operation.managedConfig" -Message "REMOVE path=$($managedConfig.SettingsPath)"
+            } else {
+                Write-InstallerLog -Stage "$operation.managedConfig" -Message 'SKIP settings ausente, alterado ou preexistente'
+            }
+            if (Remove-ManagedFileIfPristine -Path $managedConfig.ThemePath -InstalledHash $managedConfig.ThemeInstalledHash -OriginalExisted ([bool]$managedConfig.ThemeOriginalExisted)) {
+                Write-InstallerLog -Stage "$operation.managedConfig" -Message "REMOVE path=$($managedConfig.ThemePath)"
+            } else {
+                Write-InstallerLog -Stage "$operation.managedConfig" -Message 'SKIP tema ausente, alterado ou preexistente'
+            }
+        } else {
+            Write-InstallerLog -Stage "$operation.managedConfig" -Message 'SKIP estado ausente ou nao e rollback de instalacao nova'
+        }
+    } | Out-Null
+
     if ($RollbackOnly) {
         Invoke-InstallerLoggedStep -Stage 'rollback.state' -Action {
             Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue

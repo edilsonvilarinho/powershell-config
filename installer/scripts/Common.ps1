@@ -420,6 +420,26 @@ function Restore-DefaultTerminal {
     }
 }
 
+function Remove-ManagedFileIfPristine {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [AllowNull()][string]$InstalledHash,
+        [Parameter(Mandatory = $true)][bool]$OriginalExisted
+    )
+
+    if ($OriginalExisted) {
+        return $false
+    }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+    if ((Get-FileSha256 -Path $Path) -ne $InstalledHash) {
+        return $false
+    }
+    Remove-Item -LiteralPath $Path -Force
+    return $true
+}
+
 function Sync-ManagedFile {
     param(
         [Parameter(Mandatory = $true)][string]$SourcePath,

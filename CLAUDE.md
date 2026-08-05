@@ -89,7 +89,7 @@ Processos externos (`pwsh`, `oh-my-posh`, `wt`) sempre por `execFileSafe` (`shel
 
 ### Instalação nova vs. upgrade
 
-`.onInit` do NSIS define `$IsUpgrade` detectando `app\`, `config\` ou `state\install-state.json`. Em upgrade: extrai o novo app em `app.update`, troca por `Rename` (`app` → `app.previous` → swap, com rollback), e **pula** preflight do Windows Terminal, fontes, WinGet, perfil, Terminal e startup. `config/`, `state/` e `backups/` nunca são removidos. Falha de configuração em upgrade não dispara rollback integral (`Configure-PowerShellConfig.ps1`).
+`.onInit` do NSIS define `$IsUpgrade` detectando somente `state\install-state.json` — nunca `app\`/`config\` isolados, pois esses resíduos sobrevivem ao rollback de uma instalação nova que falhou (`Uninstall-PowerShellConfig.ps1 -RollbackOnly` sempre apaga `install-state.json`, mas não toca `app/`/`config/`); tratar esse resíduo como upgrade pularia toda a configuração de Terminal/perfil/cor numa reinstalação. Em upgrade real: extrai o novo app em `app.update`, troca por `Rename` (`app` → `app.previous` → swap, com rollback), e **pula** preflight do Windows Terminal, fontes, WinGet, perfil, Terminal e startup. `config/`, `state/` e `backups/` nunca são removidos por upgrade. Falha de configuração em upgrade não dispara rollback integral (`Configure-PowerShellConfig.ps1`). Rollback de instalação nova (`-RollbackOnly`) remove `config/settings.json` e `config/themes/active.omp.json` se ainda intocados desde a instalação (`ManagedConfig` no estado + `Remove-ManagedFileIfPristine` em `Common.ps1`), para não deixar o app com um `colorScheme` órfão.
 
 ### Test-PowerShellConfig.ps1 é teste de contrato textual
 

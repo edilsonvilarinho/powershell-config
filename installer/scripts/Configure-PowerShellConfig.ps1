@@ -156,8 +156,12 @@ try {
             TerminalFragment = $null
             DefaultTerminal = $null
             ExecutionPolicy = $null
+            ManagedConfig = $null
             Fonts = @()
         }
+    }
+    if ($isUpgrade -and $null -eq $state.PSObject.Properties['ManagedConfig']) {
+        $state | Add-Member -NotePropertyName 'ManagedConfig' -NotePropertyValue $null
     }
     $state.ProductVersion = $ProductVersion
     Write-InstallerLog -Stage 'state.load' -Message "isUpgrade=$isUpgrade statePath=$statePath"
@@ -172,6 +176,16 @@ try {
     $defaultThemePath = Join-Path $InstallRoot 'takuya.omp.json'
     Invoke-InstallerLoggedStep -Stage 'managedConfig' -Action {
         New-Item -ItemType Directory -Path $managedThemesDirectory -Force | Out-Null
+        if (-not $isUpgrade -or $null -eq $state.ManagedConfig) {
+            $state.ManagedConfig = [ordered]@{
+                SettingsPath = $settingsPath
+                SettingsOriginalExisted = Test-Path -LiteralPath $settingsPath
+                SettingsInstalledHash = $null
+                ThemePath = $activeThemePath
+                ThemeOriginalExisted = Test-Path -LiteralPath $activeThemePath
+                ThemeInstalledHash = $null
+            }
+        }
         if (-not (Test-Path -LiteralPath $settingsPath)) {
             Copy-Item -LiteralPath $defaultSettingsPath -Destination $settingsPath
             Write-InstallerLog -Stage 'managedConfig' -Message "settingsCreated=$settingsPath"
@@ -184,6 +198,9 @@ try {
         } else {
             Write-InstallerLog -Stage 'managedConfig' -Message "themePreserved=$activeThemePath"
         }
+        $state.ManagedConfig.SettingsInstalledHash = Get-FileSha256 -Path $settingsPath
+        $state.ManagedConfig.ThemeInstalledHash = Get-FileSha256 -Path $activeThemePath
+        Save-InstallState -State $state
     } | Out-Null
 
     $profilePath = $PROFILE.CurrentUserCurrentHost

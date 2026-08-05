@@ -146,7 +146,11 @@ export class ApplicationService {
       prompt: { ...requested.prompt, themeName: selectedTheme.name },
     });
     if (!this.terminalService.listColorSchemes().includes(nextSettings.terminal.colorScheme)) {
-      throw new Error('O esquema de cores selecionado não existe no Windows Terminal.');
+      throw new Error(
+        `O esquema de cores "${nextSettings.terminal.colorScheme}" não foi encontrado no Windows Terminal. ` +
+          'Isso costuma indicar que a instalação foi interrompida antes de concluir a configuração do Terminal. ' +
+          'Reabra o instalador do PowerShell Config para reparar a configuração; se persistir, escolha outro esquema de cores.',
+      );
     }
 
     await this.themeService.preview(nextSettings.prompt.themeId);
@@ -409,7 +413,11 @@ export class ApplicationService {
     ]);
     if (validation.issues[0]) throw new Error(`Customização importada inválida: ${validation.issues[0].message}`);
     if (!this.terminalService.listColorSchemes().includes(settings.terminal.colorScheme)) {
-      throw new Error(`O esquema de cores importado "${settings.terminal.colorScheme}" não existe no Windows Terminal.`);
+      throw new Error(
+        `O esquema de cores importado "${settings.terminal.colorScheme}" não foi encontrado no Windows Terminal. ` +
+          'Isso costuma indicar que a instalação foi interrompida antes de concluir a configuração do Terminal. ' +
+          'Reabra o instalador do PowerShell Config para reparar a configuração; se persistir, escolha outro esquema de cores.',
+      );
     }
     await this.validateManagedProfileSyntax();
     await this.validateGeneratedProfileSyntax(buildCustomProfile(settings));

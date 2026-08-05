@@ -280,10 +280,6 @@ FunctionEnd
 Function .onInit
     SetShellVarContext current
     StrCpy $IsUpgrade 0
-    IfFileExists "$INSTDIR\app\*.*" existingInstallDetected checkExistingConfig
-checkExistingConfig:
-    IfFileExists "$INSTDIR\config\*.*" existingInstallDetected checkExistingState
-checkExistingState:
     IfFileExists "$INSTDIR\state\install-state.json" existingInstallDetected installModeDetected
 existingInstallDetected:
     StrCpy $IsUpgrade 1
