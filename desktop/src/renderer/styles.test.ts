@@ -7,6 +7,11 @@ const stylesheet = readFileSync('src/renderer/styles.css', 'utf8')
   .replace(/\s+/g, ' ');
 
 describe('layout responsivo', () => {
+  it('mantém legíveis os metadados e o status no rodapé', () => {
+    expect(stylesheet).toContain('aside footer { margin-top: auto; border-top: 1px solid var(--border); padding: 16px 10px 0; display: grid; gap: 3px; color: var(--muted); font: 13px Consolas, monospace;');
+    expect(stylesheet).toContain('.apply-bar span { margin-right: auto; color: var(--muted); font: 13px Consolas, monospace;');
+  });
+
   it('expande a área útil e a prévia em janelas amplas', () => {
     expect(stylesheet).toContain('.content section { width: 100%; max-width: 2200px;');
     expect(stylesheet).toContain('.theme-list { height: clamp(300px, 54vh, 760px);');
