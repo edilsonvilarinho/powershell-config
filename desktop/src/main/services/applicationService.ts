@@ -2,7 +2,14 @@ import { app, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ApplyRequest, ApplyResult, BackupInfo, BootstrapData } from '../../shared/settings.js';
+import type {
+  ApplyRequest,
+  ApplyResult,
+  BackupInfo,
+  BootstrapData,
+  CustomizationCodeInput,
+  CustomizationValidationResult,
+} from '../../shared/settings.js';
 import { defaultSettings, migrateSettings, settingsSchema } from '../../shared/settings.js';
 import type { AppPaths } from './paths.js';
 import { appendLog, copyIfExists, ensureDirectory, hashFile, readUtf8, sha256, writeAtomic } from './fileService.js';
@@ -13,6 +20,11 @@ import { DiagnosticsService } from './diagnosticsService.js';
 import { isLaunchAtStartupEnabled, setLaunchAtStartup } from './startupService.js';
 import { execFileSafe, resolveWindowsExecutable } from './processService.js';
 import { buildCustomProfile } from './customProfileService.js';
+import {
+  findNativeAliasCollisions,
+  listNativeAliases,
+  validateCustomizationCode,
+} from './powershellCustomizationService.js';
 
 interface SnapshotEntry {
   target: string;
@@ -52,12 +64,17 @@ export class ApplicationService {
 
   async bootstrap(): Promise<BootstrapData> {
     const settings = this.settingsService.read();
+    const [diagnostics, nativeAliases] = await Promise.all([
+      this.diagnosticsService.collect(),
+      listNativeAliases().catch(() => []),
+    ]);
     return {
       settings,
       revision: this.revision(),
       themes: this.themeService.list(),
       colorSchemes: this.terminalService.listColorSchemes(),
-      diagnostics: await this.diagnosticsService.collect(),
+      diagnostics,
+      nativeAliases,
       appVersion: app.getVersion(),
       backups: this.listBackups(),
     };
@@ -65,10 +82,39 @@ export class ApplicationService {
 
   async apply(request: ApplyRequest): Promise<ApplyResult> {
     if (!request || typeof request.expectedRevision !== 'string') throw new Error('Requisição de aplicação inválida.');
-    const requested = settingsSchema.parse(request.settings);
+    const parsedRequest = settingsSchema.safeParse(request.settings);
+    if (!parsedRequest.success) {
+      throw new Error(parsedRequest.error.issues[0]?.message ?? 'As configurações informadas são inválidas.');
+    }
+    const requested = parsedRequest.data;
     const currentRevision = this.revision();
     if (request.expectedRevision !== currentRevision) {
       throw new Error('As configurações foram alteradas externamente. Recarregue antes de aplicar.');
+    }
+
+    const nativeAliases = await listNativeAliases();
+    const collision = findNativeAliasCollisions(requested, nativeAliases)[0];
+    if (collision) throw new Error(collision.message);
+    const codeValidation = await this.validateCustomizations([
+      ...requested.customizations.functions.map((entry) => ({
+        id: entry.id,
+        kind: 'function' as const,
+        name: entry.name,
+        code: entry.body,
+      })),
+      ...requested.customizations.commands.map((entry) => ({
+        id: entry.id,
+        kind: 'command' as const,
+        code: entry.code,
+      })),
+    ]);
+    const codeIssue = codeValidation.issues[0];
+    if (codeIssue) {
+      const functionEntry = requested.customizations.functions.find((item) => item.id === codeIssue.id);
+      const commandEntry = requested.customizations.commands.find((item) => item.id === codeIssue.id);
+      const position = codeIssue.line ? `, linha ${codeIssue.line}` : '';
+      const label = functionEntry ? `Função "${functionEntry.name}"` : `Comando "${commandEntry?.label ?? codeIssue.id}"`;
+      throw new Error(`${label}${position}: ${codeIssue.message}`);
     }
 
     const currentSettings = this.settingsService.read();
@@ -126,6 +172,10 @@ export class ApplicationService {
     };
   }
 
+  validateCustomizations(items: CustomizationCodeInput[]): Promise<CustomizationValidationResult> {
+    return validateCustomizationCode(items);
+  }
+
   restoreDefaults(expectedRevision: string): Promise<ApplyResult> {
     return this.apply({ settings: defaultSettings, expectedRevision });
   }
@@ -143,6 +193,8 @@ export class ApplicationService {
     const stateContent = readUtf8(path.join(sourceRoot, 'install-state.json'));
     if (!settingsContent || !themeContent || !terminalContent) throw new Error('O backup mais recente está incompleto.');
     const restoredSettings = migrateSettings(JSON.parse(settingsContent));
+    const restoreCollision = findNativeAliasCollisions(restoredSettings, await listNativeAliases())[0];
+    if (restoreCollision) throw new Error(restoreCollision.message);
     const restoredSettingsContent = this.settingsService.serialize(restoredSettings);
     const restoredCustomProfileContent = buildCustomProfile(restoredSettings);
     JSON.parse(themeContent.toString('utf8'));

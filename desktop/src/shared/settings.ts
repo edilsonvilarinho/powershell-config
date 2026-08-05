@@ -12,6 +12,14 @@ const aliasTargetSchema = z.string().trim().min(1).max(256).regex(
   'Informe um comando pelo nome, sem caminho de arquivo, argumentos ou expressões.',
 );
 
+export function isValidCommandName(value: string): boolean {
+  return commandNameSchema.safeParse(value).success;
+}
+
+export function isAliasTarget(value: string): boolean {
+  return aliasTargetSchema.safeParse(value).success;
+}
+
 const customizationsSchema = z.object({
   aliases: z.array(z.object({
     id: customizationIdSchema,
@@ -193,8 +201,33 @@ export interface BootstrapData {
   themes: ThemeInfo[];
   colorSchemes: string[];
   diagnostics: Diagnostics;
+  nativeAliases: NativeAliasInfo[];
   appVersion: string;
   backups: BackupInfo[];
+}
+
+export interface NativeAliasInfo {
+  name: string;
+  definition: string;
+}
+
+export interface CustomizationCodeInput {
+  id: string;
+  kind: 'function' | 'command';
+  name?: string;
+  code: string;
+}
+
+export interface CustomizationValidationIssue {
+  id: string;
+  field: 'name' | 'body' | 'code';
+  message: string;
+  line?: number;
+  column?: number;
+}
+
+export interface CustomizationValidationResult {
+  issues: CustomizationValidationIssue[];
 }
 
 export interface BackupInfo {
@@ -217,6 +250,7 @@ export interface DesktopApi {
   getBootstrap(): Promise<BootstrapData>;
   previewTheme(themeId: string): Promise<string>;
   importTheme(): Promise<ThemeInfo | null>;
+  validateCustomizations(items: CustomizationCodeInput[]): Promise<CustomizationValidationResult>;
   applySettings(request: ApplyRequest): Promise<ApplyResult>;
   restoreDefaults(expectedRevision: string): Promise<ApplyResult>;
   restoreLatestBackup(expectedRevision: string): Promise<ApplyResult>;

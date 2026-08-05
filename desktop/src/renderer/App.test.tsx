@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { defaultSettings, type BootstrapData, type DesktopApi } from '../shared/settings';
@@ -20,6 +20,7 @@ const bootstrap: BootstrapData = {
     terminalIconsInstalled: true,
     configuredFontInstalled: true,
   },
+  nativeAliases: [{ name: 'gc', definition: 'Get-Content' }],
   appVersion: '1.0.0',
   backups: [],
 };
@@ -35,6 +36,7 @@ describe('App', () => {
       getBootstrap: vi.fn().mockResolvedValue(bootstrap),
       previewTheme: vi.fn().mockResolvedValue('data:image/png;base64,AA=='),
       importTheme: vi.fn(),
+      validateCustomizations: vi.fn().mockResolvedValue({ issues: [] }),
       applySettings: vi.fn(),
       restoreDefaults: vi.fn(),
       restoreLatestBackup: vi.fn(),
@@ -87,7 +89,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Configurações$/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Claro OpenCode' }));
     fireEvent.click(screen.getByRole('button', { name: 'Revisar e aplicar' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Aplicar com backup' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Aplicar com backup' }));
 
     expect(await screen.findByText(/Os dados foram recarregados/)).toBeInTheDocument();
     await waitFor(() => expect(getBootstrap).toHaveBeenCalledTimes(2));
@@ -96,29 +98,65 @@ describe('App', () => {
     expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
-  it('oferece CRUD explícito para aliases, funções e comandos personalizados', async () => {
-    installApi();
+  it('remove detalhes técnicos de erros de validação recebidos pelo IPC', async () => {
+    installApi({
+      applySettings: vi.fn().mockRejectedValue(new Error(
+        "Error invoking remote method 'powershell-config:apply-settings': [{\"message\":\"Informe um comando válido.\"}]",
+      )),
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Configurações$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Claro OpenCode' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar e aplicar' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Aplicar com backup' }));
+
+    expect(await screen.findByText('Informe um comando válido.')).toBeInTheDocument();
+    expect(screen.queryByText(/remote method/)).not.toBeInTheDocument();
+  });
+
+  it('cria um atalho para comando completo sem exigir conhecimento de função PowerShell', async () => {
+    const api = installApi();
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
 
-    expect(screen.getByText('Execução de código local')).toBeInTheDocument();
-    expect(screen.getByText(/não torna esse código seguro/)).toBeInTheDocument();
+    expect(screen.getByText('O que você quer criar?')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^Nome que você quer digitar/), { target: { value: 'gcommit' } });
+    fireEvent.change(screen.getByLabelText(/^O que deve ser executado/), { target: { value: 'git commit' } });
+    expect(screen.getByText(/Ao digitar “gcommit/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar personalização' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Adicionar alias' }));
-    fireEvent.change(screen.getByLabelText('Nome do alias'), { target: { value: 'gco' } });
-    fireEvent.change(screen.getByLabelText('Comando de destino'), { target: { value: 'git' } });
-    expect(screen.getByRole('button', { name: 'Excluir alias gco' })).toBeInTheDocument();
+    await waitFor(() => expect(api.validateCustomizations).toHaveBeenCalledWith([
+      expect.objectContaining({ kind: 'function', name: 'gcommit', code: 'git commit @args' }),
+    ]));
+    expect(await screen.findByText('gcommit')).toBeInTheDocument();
+    expect(screen.getAllByText('git commit @args').length).toBeGreaterThan(0);
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Adicionar função' }));
-    expect(screen.getByLabelText('Nome da função')).toBeInTheDocument();
-    expect(screen.getByLabelText(/^Corpo PowerShell/)).toBeInTheDocument();
+  it('bloqueia alias nativo e explica o conflito sem erro técnico', async () => {
+    installApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
+    fireEvent.change(screen.getByLabelText(/^Nome que você quer digitar/), { target: { value: 'gc' } });
+    fireEvent.change(screen.getByLabelText(/^O que deve ser executado/), { target: { value: 'git commit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar personalização' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Adicionar comando' }));
-    expect(screen.getByLabelText('Identificação')).toBeInTheDocument();
-    expect(screen.getByLabelText('Código PowerShell')).toBeInTheDocument();
-    expect(screen.getByText(/alteração\(ões\) pendente\(s\)/)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('gc');
+    expect(screen.getByRole('alert')).toHaveTextContent('Get-Content');
+    expect(screen.getByRole('alert')).toHaveTextContent('gcommit');
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Excluir alias gco' }));
-    expect(screen.queryByLabelText('Nome do alias')).not.toBeInTheDocument();
+  it('oferece modelos clicáveis e mantém os editores técnicos no modo avançado', async () => {
+    installApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ver exemplos' }));
+    const template = screen.getByText('Formatar JSON').closest('article');
+    expect(template).not.toBeNull();
+    fireEvent.click(within(template as HTMLElement).getByRole('button', { name: 'Usar modelo' }));
+    expect(screen.getByText('Show-Json')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Modo avançado/));
+    expect(screen.getByLabelText('Nome da função')).toHaveValue('Show-Json');
+    expect((screen.getByLabelText(/^Corpo PowerShell/) as HTMLTextAreaElement).value).toContain('ConvertFrom-Json');
   });
 });

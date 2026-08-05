@@ -10,6 +10,21 @@ export function registerIpcHandlers(service: ApplicationService): void {
     return service.themeService.preview(themeId);
   });
   ipcMain.handle(ipcChannels.importTheme, () => service.themeService.importWithDialog());
+  ipcMain.handle(ipcChannels.validateCustomizations, (_event, items: unknown) => {
+    if (!Array.isArray(items) || items.length > 200) throw new Error('Lista de customizações inválida.');
+    const valid = items.every((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const record = item as Record<string, unknown>;
+      return typeof record.id === 'string'
+        && record.id.length <= 64
+        && (record.kind === 'function' || record.kind === 'command')
+        && (record.name === undefined || (typeof record.name === 'string' && record.name.length <= 128))
+        && typeof record.code === 'string'
+        && record.code.length <= 32_768;
+    });
+    if (!valid) throw new Error('Dados de customização inválidos.');
+    return service.validateCustomizations(items);
+  });
   ipcMain.handle(ipcChannels.applySettings, (_event, request: ApplyRequest) => service.apply(request));
   ipcMain.handle(ipcChannels.restoreDefaults, (_event, revision: unknown) => {
     if (typeof revision !== 'string') throw new Error('Revisão inválida.');

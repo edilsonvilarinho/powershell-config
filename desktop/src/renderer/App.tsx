@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AppSettings, BootstrapData, Diagnostics, ThemeInfo } from '../shared/settings';
+import { settingsSchema, type AppSettings, type BootstrapData, type Diagnostics, type ThemeInfo } from '../shared/settings';
+import { Customizations, type CustomizationDisplayIssue } from './Customizations';
 
 type Section = 'overview' | 'themes' | 'profile' | 'terminal' | 'settings';
 
@@ -36,6 +37,24 @@ function changesBetween(previous: unknown, next: unknown, prefix = ''): string[]
   );
 }
 
+function userErrorMessage(error: unknown): string {
+  let text = error instanceof Error ? error.message : String(error);
+  text = text.replace(/^Error invoking remote method '[^']+':\s*/i, '').trim();
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      const first = parsed.find((item) => item && typeof item === 'object' && typeof (item as Record<string, unknown>).message === 'string') as Record<string, unknown> | undefined;
+      if (first) return String(first.message);
+    }
+  } catch {
+    const messageMatch = text.match(/"message"\s*:\s*"((?:\\.|[^"\\])*)"/);
+    if (messageMatch) {
+      try { return JSON.parse(`"${messageMatch[1]}"`) as string; } catch { /* usa o texto limpo abaixo */ }
+    }
+  }
+  return text.replace(/^Error:\s*/i, '') || 'Ocorreu um erro inesperado. Consulte os logs.';
+}
+
 function Status({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return <span className={`status ${ok ? 'ok' : 'error'}`}><span aria-hidden="true">●</span>{children}</span>;
 }
@@ -51,11 +70,6 @@ function Toggle({ checked, onChange, label, description }: { checked: boolean; o
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
-}
-
-function customizationId(prefix: string): string {
-  const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `${prefix}-${suffix}`;
 }
 
 function DiagnosticCard({ title, value, ok }: { title: string; value: string; ok: boolean }) {
@@ -145,7 +159,7 @@ function Themes({ themes, draft, onDraft, onImport, preview, previewBusy }: {
   );
 }
 
-function Profile({ draft, onDraft }: { draft: AppSettings; onDraft: (settings: AppSettings) => void }) {
+function Profile({ draft, onDraft, nativeAliases, issues }: { draft: AppSettings; onDraft: (settings: AppSettings) => void; nativeAliases: BootstrapData['nativeAliases']; issues: CustomizationDisplayIssue[] }) {
   const updateCustomizations = (customizations: AppSettings['customizations']): void => {
     onDraft({ ...draft, customizations });
   };
@@ -157,35 +171,7 @@ function Profile({ draft, onDraft }: { draft: AppSettings; onDraft: (settings: A
         <article className="panel form-panel"><h2>PSReadLine</h2><div className="form-grid"><Field label="Modo de edição"><select value={draft.psReadLine.editMode} onChange={(event) => onDraft(setNested(draft, 'psReadLine', 'editMode', event.target.value as AppSettings['psReadLine']['editMode']))}><option>Emacs</option><option>Windows</option><option>Vi</option></select></Field><Field label="Bell"><select value={draft.psReadLine.bellStyle} onChange={(event) => onDraft(setNested(draft, 'psReadLine', 'bellStyle', event.target.value as AppSettings['psReadLine']['bellStyle']))}><option>None</option><option>Audible</option><option>Visual</option></select></Field><Field label="Predição"><select value={draft.psReadLine.predictionSource} onChange={(event) => onDraft(setNested(draft, 'psReadLine', 'predictionSource', event.target.value as AppSettings['psReadLine']['predictionSource']))}><option>History</option><option>None</option></select></Field><Field label="Visualização"><select value={draft.psReadLine.predictionViewStyle} onChange={(event) => onDraft(setNested(draft, 'psReadLine', 'predictionViewStyle', event.target.value as AppSettings['psReadLine']['predictionViewStyle']))}><option>ListView</option><option>InlineView</option></select></Field></div><Toggle checked={draft.psReadLine.ctrlD} onChange={(value) => onDraft(setNested(draft, 'psReadLine', 'ctrlD', value))} label="Ctrl+D apaga o caractere atual" /></article>
       </div>
       <article className="panel form-panel"><h2>Aliases conhecidos</h2><div className="alias-grid">{Object.entries(draft.aliases).map(([name, enabled]) => <Toggle key={name} checked={enabled} onChange={(value) => onDraft({ ...draft, aliases: { ...draft.aliases, [name]: value } })} label={name} />)}</div></article>
-      <article className="panel customization-panel">
-        <div className="risk-notice" role="note"><strong>Execução de código local</strong><p>Funções e comandos personalizados são código PowerShell do próprio usuário. Eles executam na abertura do shell com as permissões da sessão. O aplicativo valida sintaxe, mas não torna esse código seguro nem limita seus efeitos.</p></div>
-        <div className="customization-heading"><div><h2>Aliases personalizados</h2><p>O destino deve ser o nome de um comando, sem caminho, argumentos ou expressão.</p></div><button className="secondary" onClick={() => updateCustomizations({ ...draft.customizations, aliases: [...draft.customizations.aliases, { id: customizationId('alias'), enabled: true, name: '', command: '' }] })}>Adicionar alias</button></div>
-        <div className="customization-list">
-          {draft.customizations.aliases.map((entry) => <div className="customization-item alias-editor" key={entry.id}>
-            <input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar alias ${entry.name || 'novo'}`} onChange={(event) => updateCustomizations({ ...draft.customizations, aliases: draft.customizations.aliases.map((item) => item.id === entry.id ? { ...item, enabled: event.target.checked } : item) })} />
-            <Field label="Nome do alias"><input required maxLength={128} value={entry.name} onChange={(event) => updateCustomizations({ ...draft.customizations, aliases: draft.customizations.aliases.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) })} /></Field>
-            <Field label="Comando de destino"><input required maxLength={256} placeholder="Ex.: Get-ChildItem" value={entry.command} onChange={(event) => updateCustomizations({ ...draft.customizations, aliases: draft.customizations.aliases.map((item) => item.id === entry.id ? { ...item, command: event.target.value } : item) })} /></Field>
-            <button className="danger compact" aria-label={`Excluir alias ${entry.name || 'novo'}`} onClick={() => updateCustomizations({ ...draft.customizations, aliases: draft.customizations.aliases.filter((item) => item.id !== entry.id) })}>Excluir</button>
-          </div>)}
-          {!draft.customizations.aliases.length && <p className="empty-customization">Nenhum alias personalizado.</p>}
-        </div>
-        <div className="customization-heading"><div><h2>Funções personalizadas</h2><p>Informe o nome e o corpo da função. Um bloco <code>function global:Nome</code> será gerado.</p></div><button className="secondary" onClick={() => updateCustomizations({ ...draft.customizations, functions: [...draft.customizations.functions, { id: customizationId('function'), enabled: true, name: '', body: '' }] })}>Adicionar função</button></div>
-        <div className="customization-list">
-          {draft.customizations.functions.map((entry) => <div className="customization-item code-editor" key={entry.id}>
-            <div className="customization-item-header"><input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar função ${entry.name || 'nova'}`} onChange={(event) => updateCustomizations({ ...draft.customizations, functions: draft.customizations.functions.map((item) => item.id === entry.id ? { ...item, enabled: event.target.checked } : item) })} /><Field label="Nome da função"><input required maxLength={128} placeholder="Ex.: Invoke-Workspace" value={entry.name} onChange={(event) => updateCustomizations({ ...draft.customizations, functions: draft.customizations.functions.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) })} /></Field><button className="danger compact" aria-label={`Excluir função ${entry.name || 'nova'}`} onClick={() => updateCustomizations({ ...draft.customizations, functions: draft.customizations.functions.filter((item) => item.id !== entry.id) })}>Excluir</button></div>
-            <Field label="Corpo PowerShell" hint="Pode começar com param(...) e conter múltiplas linhas."><textarea required maxLength={32768} spellCheck={false} value={entry.body} onChange={(event) => updateCustomizations({ ...draft.customizations, functions: draft.customizations.functions.map((item) => item.id === entry.id ? { ...item, body: event.target.value } : item) })} /></Field>
-          </div>)}
-          {!draft.customizations.functions.length && <p className="empty-customization">Nenhuma função personalizada.</p>}
-        </div>
-        <div className="customization-heading"><div><h2>Comandos na abertura</h2><p>Blocos PowerShell executados quando o perfil é carregado, na ordem exibida.</p></div><button className="secondary" onClick={() => updateCustomizations({ ...draft.customizations, commands: [...draft.customizations.commands, { id: customizationId('command'), enabled: true, label: '', code: '' }] })}>Adicionar comando</button></div>
-        <div className="customization-list">
-          {draft.customizations.commands.map((entry) => <div className="customization-item code-editor" key={entry.id}>
-            <div className="customization-item-header"><input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar comando ${entry.label || 'novo'}`} onChange={(event) => updateCustomizations({ ...draft.customizations, commands: draft.customizations.commands.map((item) => item.id === entry.id ? { ...item, enabled: event.target.checked } : item) })} /><Field label="Identificação"><input required maxLength={128} placeholder="Ex.: Variáveis do projeto" value={entry.label} onChange={(event) => updateCustomizations({ ...draft.customizations, commands: draft.customizations.commands.map((item) => item.id === entry.id ? { ...item, label: event.target.value } : item) })} /></Field><button className="danger compact" aria-label={`Excluir comando ${entry.label || 'novo'}`} onClick={() => updateCustomizations({ ...draft.customizations, commands: draft.customizations.commands.filter((item) => item.id !== entry.id) })}>Excluir</button></div>
-            <Field label="Código PowerShell"><textarea required maxLength={32768} spellCheck={false} value={entry.code} onChange={(event) => updateCustomizations({ ...draft.customizations, commands: draft.customizations.commands.map((item) => item.id === entry.id ? { ...item, code: event.target.value } : item) })} /></Field>
-          </div>)}
-          {!draft.customizations.commands.length && <p className="empty-customization">Nenhum comando configurado.</p>}
-        </div>
-      </article>
+      <Customizations customizations={draft.customizations} nativeAliases={nativeAliases} issues={issues} onChange={updateCustomizations} />
       <article className="panel form-panel"><Toggle checked={draft.help.showOnFirstRun} onChange={(value) => onDraft(setNested(draft, 'help', 'showOnFirstRun', value))} label="Exibir ajuda na próxima abertura" description="Para repetir, desative e aplique; depois ative e aplique novamente." /></article>
     </section>
   );
@@ -217,6 +203,7 @@ export function App() {
   const [review, setReview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [customizationIssues, setCustomizationIssues] = useState<CustomizationDisplayIssue[]>([]);
 
   const load = async (): Promise<boolean> => {
     try {
@@ -226,7 +213,7 @@ export function App() {
       document.documentElement.dataset.theme = bootstrap.settings.ui.theme;
       return true;
     } catch (error) {
-      setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) });
+      setMessage({ type: 'error', text: userErrorMessage(error) });
       return false;
     }
   };
@@ -235,7 +222,7 @@ export function App() {
     try {
       await action();
     } catch (error) {
-      setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) });
+      setMessage({ type: 'error', text: userErrorMessage(error) });
     }
   };
 
@@ -244,6 +231,7 @@ export function App() {
     if (!draft) return;
     document.documentElement.dataset.theme = draft.ui.theme;
   }, [draft?.ui.theme]);
+  useEffect(() => { setCustomizationIssues([]); }, [draft]);
   useEffect(() => {
     if (!draft || section !== 'themes') return;
     let cancelled = false;
@@ -252,7 +240,7 @@ export function App() {
     void window.powershellConfig.previewTheme(draft.prompt.themeId).then((image) => {
       if (!cancelled) setPreview(image);
     }).catch((error) => {
-      if (!cancelled) setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) });
+      if (!cancelled) setMessage({ type: 'error', text: userErrorMessage(error) });
     }).finally(() => { if (!cancelled) setPreviewBusy(false); });
     return () => { cancelled = true; };
   }, [draft?.prompt.themeId, section]);
@@ -261,6 +249,50 @@ export function App() {
   const changes = useMemo(() => data && draft ? changesBetween(data.settings, draft) : [], [data, draft]);
 
   if (!data || !draft) return <main className="boot"><div className="boot-mark">&gt;_</div><p>{message?.text ?? 'Carregando PowerShell Config...'}</p></main>;
+
+  const reviewDraft = async (): Promise<void> => {
+    const localIssues: CustomizationDisplayIssue[] = [];
+    const parsed = settingsSchema.safeParse(draft);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const [root, group, index, field] = issue.path;
+        if (root !== 'customizations' || typeof group !== 'string' || typeof index !== 'number' || typeof field !== 'string') continue;
+        if (group !== 'aliases' && group !== 'functions' && group !== 'commands') continue;
+        const entry = draft.customizations[group][index];
+        if (entry) localIssues.push({ id: entry.id, field, message: issue.message });
+      }
+    }
+    const nativeByName = new Map(data.nativeAliases.map((entry) => [entry.name.toLowerCase(), entry]));
+    for (const entry of [...draft.customizations.aliases, ...draft.customizations.functions]) {
+      const native = nativeByName.get(entry.name.trim().toLowerCase());
+      if (native) localIssues.push({ id: entry.id, field: 'name', message: `"${entry.name}" já é um alias nativo de "${native.definition}". Escolha outro nome.` });
+    }
+    if (localIssues.length) {
+      setCustomizationIssues(localIssues);
+      setSection('profile');
+      setMessage({ type: 'error', text: `Corrija ${localIssues.length} campo(s) destacado(s) antes de revisar.` });
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const validation = await window.powershellConfig.validateCustomizations([
+        ...draft.customizations.functions.map((entry) => ({ id: entry.id, kind: 'function' as const, name: entry.name, code: entry.body })),
+        ...draft.customizations.commands.map((entry) => ({ id: entry.id, kind: 'command' as const, code: entry.code })),
+      ]);
+      if (validation.issues.length) {
+        setCustomizationIssues(validation.issues);
+        setSection('profile');
+        setMessage({ type: 'error', text: `Corrija ${validation.issues.length} erro(s) de sintaxe destacado(s) antes de revisar.` });
+        return;
+      }
+      setReview(true);
+    } catch (error) {
+      setMessage({ type: 'error', text: userErrorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const apply = async (): Promise<void> => {
     setBusy(true);
@@ -274,7 +306,7 @@ export function App() {
       setMessage({ type: 'success', text: 'Configurações validadas e aplicadas com backup.' });
     } catch (error) {
       setReview(false);
-      const errorText = error instanceof Error ? error.message : String(error);
+      const errorText = userErrorMessage(error);
       if (errorText.includes('As configurações foram alteradas externamente.')) {
         const reloaded = await load();
         setMessage({
@@ -296,7 +328,7 @@ export function App() {
       setData({ ...data, themes: [...data.themes.filter((theme) => theme.id !== imported.id), imported].sort((a, b) => a.name.localeCompare(b.name)) });
       setDraft(setNested(draft, 'prompt', 'themeId', imported.id));
       setMessage({ type: 'success', text: `Tema ${imported.name} importado e validado.` });
-    } catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { setMessage({ type: 'error', text: userErrorMessage(error) }); }
   };
 
   const restore = async (): Promise<void> => {
@@ -306,7 +338,7 @@ export function App() {
       await window.powershellConfig.restoreDefaults(data.revision);
       await load();
       setMessage({ type: 'success', text: 'Padrões restaurados com backup.' });
-    } catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { setMessage({ type: 'error', text: userErrorMessage(error) }); }
     finally { setBusy(false); }
   };
 
@@ -317,7 +349,7 @@ export function App() {
       await window.powershellConfig.restoreLatestBackup(data.revision);
       await load();
       setMessage({ type: 'success', text: 'Backup mais recente restaurado; o estado anterior foi preservado.' });
-    } catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { setMessage({ type: 'error', text: userErrorMessage(error) }); }
     finally { setBusy(false); }
   };
 
@@ -328,11 +360,11 @@ export function App() {
       <main className="content">
         {section === 'overview' && <Overview data={{ ...data, settings: draft }} />}
         {section === 'themes' && <Themes themes={data.themes} draft={draft} onDraft={setDraft} onImport={() => void importTheme()} preview={preview} previewBusy={previewBusy} />}
-        {section === 'profile' && <Profile draft={draft} onDraft={setDraft} />}
+        {section === 'profile' && <Profile draft={draft} onDraft={setDraft} nativeAliases={data.nativeAliases} issues={customizationIssues} />}
         {section === 'terminal' && <TerminalSettings draft={draft} onDraft={setDraft} schemes={data.colorSchemes} />}
         {section === 'settings' && <SettingsPage draft={draft} onDraft={setDraft} diagnostics={data.diagnostics} backupLabel={data.backups[0] ? `Último: ${new Date(data.backups[0].createdAt).toLocaleString('pt-BR')}` : 'Nenhum backup'} onOpenTerminal={() => void runAction(() => window.powershellConfig.openTerminal())} onOpenLogs={() => void runAction(() => window.powershellConfig.openLogs())} onRestore={() => void restore()} onRestoreBackup={() => void restoreBackup()} />}
       </main>
-      <div className="apply-bar"><span>{dirty ? `${changes.length} alteração(ões) pendente(s)` : 'Configuração sincronizada'}</span><button className="ghost" disabled={!dirty || busy} onClick={() => setDraft(cloneSettings(data.settings))}>Descartar</button><button className="primary" disabled={!dirty || busy} onClick={() => setReview(true)}>Revisar e aplicar</button></div>
+      <div className="apply-bar"><span>{dirty ? `${changes.length} alteração(ões) pendente(s)` : 'Configuração sincronizada'}</span><button className="ghost" disabled={!dirty || busy} onClick={() => setDraft(cloneSettings(data.settings))}>Descartar</button><button className="primary" disabled={!dirty || busy} onClick={() => void reviewDraft()}>Revisar e aplicar</button></div>
       {message && <div className={`toast ${message.type}`} role="status"><span>{message.text}</span><button onClick={() => setMessage(null)}>×</button></div>}
       {review && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="review-title"><div className="modal"><p className="eyebrow">TRANSAÇÃO SEGURA</p><h2 id="review-title">Revisar alterações</h2><p>Um backup será criado antes da validação e gravação atômica.</p><ul className="change-list">{changes.map((change) => <li key={change}>{change}</li>)}</ul><div className="modal-actions"><button className="secondary" onClick={() => setReview(false)} disabled={busy}>Cancelar</button><button className="primary" onClick={() => void apply()} disabled={busy}>{busy ? 'Validando...' : 'Aplicar com backup'}</button></div></div></div>}
     </div>
