@@ -9,7 +9,7 @@ if (Test-Path -LiteralPath $powerShellConfigSettingsPath) {
     try {
         $powerShellConfigSettings = Get-Content -LiteralPath $powerShellConfigSettingsPath -Raw -Encoding UTF8 |
             ConvertFrom-Json -ErrorAction Stop
-        if ($powerShellConfigSettings.schemaVersion -notin @(1, 2)) {
+        if ($powerShellConfigSettings.schemaVersion -notin @(1, 2, 3)) {
             $powerShellConfigSettings = $null
         }
     } catch {
@@ -165,6 +165,31 @@ function Show-TerminalHelp {
 * `lastBootUpTime`: informa o tempo desde a ultima inicializacao
 * `which <comando>`: informa o caminho do executavel
 '@
+
+    $customHelpEntries = @($global:PowerShellConfigCustomHelpEntries | Where-Object { $null -ne $_ })
+    if ($customHelpEntries.Count -gt 0) {
+        function ConvertTo-PowerShellConfigMarkdownText {
+            param([AllowEmptyString()][string]$Value)
+
+            $escaped = $Value.Replace('\', '\\')
+            foreach ($character in @('`', '*', '_', '{', '}', '[', ']', '(', ')', '<', '>', '#', '+', '-', '.', '!', '|')) {
+                $escaped = $escaped.Replace($character, "\$character")
+            }
+            return $escaped
+        }
+
+        $helpText = $helpText.TrimEnd() + "`n`n## Personalizações"
+        foreach ($entry in $customHelpEntries) {
+            $name = [string]$entry.Name
+            $description = ConvertTo-PowerShellConfigMarkdownText -Value ([string]$entry.Description)
+            if ($entry.Kind -eq 'Alias') {
+                $target = [string]$entry.Target
+                $helpText += "`n`n* ``$name`` → ``$target``: $description"
+            } elseif ($entry.Kind -eq 'Function') {
+                $helpText += "`n`n* ``$name``: $description"
+            }
+        }
+    }
 
     if (Get-Command Show-Markdown -ErrorAction SilentlyContinue) {
         $helpText | Show-Markdown

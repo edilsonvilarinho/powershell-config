@@ -6,8 +6,8 @@ describe('powershellCustomizationService', () => {
   it('identifica colisão de alias e função com aliases nativos sem diferenciar maiúsculas', () => {
     const issues = findNativeAliasCollisions({
       customizations: {
-        aliases: [{ id: 'alias-gc', enabled: true, name: 'GC', command: 'git' }],
-        functions: [{ id: 'function-safe', enabled: true, name: 'gcommit', body: 'git commit @args' }],
+        aliases: [{ id: 'alias-gc', enabled: true, name: 'GC', command: 'git', description: 'Executa Git' }],
+        functions: [{ id: 'function-safe', enabled: true, name: 'gcommit', body: 'git commit @args', description: 'Cria um commit Git' }],
         commands: [],
       },
     }, [{ name: 'gc', definition: 'Get-Content' }]);

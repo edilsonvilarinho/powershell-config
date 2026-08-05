@@ -11,6 +11,10 @@ const aliasTargetSchema = z.string().trim().min(1).max(256).regex(
   /^[A-Za-z_][A-Za-z0-9_.-]*(?:\\[A-Za-z_][A-Za-z0-9_.-]*)?$/,
   'Informe um comando pelo nome, sem caminho de arquivo, argumentos ou expressões.',
 );
+const customizationDescriptionSchema = z.string().trim().max(256).refine(
+  (value) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(value),
+  'Use uma descrição em uma única linha, sem caracteres de controle.',
+);
 
 export function isValidCommandName(value: string): boolean {
   return commandNameSchema.safeParse(value).success;
@@ -26,12 +30,14 @@ const customizationsSchema = z.object({
     enabled: z.boolean(),
     name: commandNameSchema,
     command: aliasTargetSchema,
+    description: customizationDescriptionSchema,
   }).strict()).max(100),
   functions: z.array(z.object({
     id: customizationIdSchema,
     enabled: z.boolean(),
     name: commandNameSchema,
     body: z.string().max(32_768).refine((value) => value.trim().length > 0, 'Informe o corpo PowerShell da função.'),
+    description: customizationDescriptionSchema,
   }).strict()).max(100),
   commands: z.array(z.object({
     id: customizationIdSchema,
@@ -82,8 +88,8 @@ const customizationsSchema = z.object({
   }
 });
 
-export const settingsSchema = z.object({
-  schemaVersion: z.literal(2),
+export const editableSettingsSchema = z.object({
+  schemaVersion: z.literal(3),
   ui: z.object({
     theme: z.enum(['dark', 'light']),
   }).strict(),
@@ -122,10 +128,27 @@ export const settingsSchema = z.object({
   }).strict(),
 }).strict();
 
-export type AppSettings = z.infer<typeof settingsSchema>;
+export const settingsSchema = editableSettingsSchema.superRefine((settings, context) => {
+  for (const [group, entries] of [
+    ['aliases', settings.customizations.aliases],
+    ['functions', settings.customizations.functions],
+  ] as const) {
+    entries.forEach((entry, index) => {
+      if (!entry.description.trim()) {
+        context.addIssue({
+          code: 'custom',
+          path: ['customizations', group, index, 'description'],
+          message: 'Informe uma descrição para incluir esta personalização na ajuda do PowerShell.',
+        });
+      }
+    });
+  }
+});
+
+export type AppSettings = z.infer<typeof editableSettingsSchema>;
 
 export const defaultSettings: AppSettings = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   ui: { theme: 'dark' },
   startup: { enabled: true },
   prompt: { enabled: true, themeId: 'builtin:takuya', themeName: 'takuya' },
@@ -167,13 +190,32 @@ function mergeKnownDefaults(defaultValue: unknown, candidate: unknown): unknown 
 }
 
 export function migrateSettings(input: unknown): AppSettings {
-  if (!isRecord(input) || (input.schemaVersion !== 1 && input.schemaVersion !== 2)) {
+  if (!isRecord(input) || ![1, 2, 3].includes(input.schemaVersion as number)) {
     throw new Error('Versão de settings.json ausente ou não suportada.');
   }
-  const version2 = input.schemaVersion === 1
-    ? { ...input, schemaVersion: 2, customizations: defaultSettings.customizations }
-    : input;
-  return settingsSchema.parse(mergeKnownDefaults(defaultSettings, version2));
+  let version3: Record<string, unknown>;
+  if (input.schemaVersion === 1) {
+    version3 = { ...input, schemaVersion: 3, customizations: defaultSettings.customizations };
+  } else if (input.schemaVersion === 2) {
+    const customizations = isRecord(input.customizations) ? input.customizations : {};
+    const addDescription = (entries: unknown): unknown[] => Array.isArray(entries)
+      ? entries.map((entry) => isRecord(entry)
+        ? { ...entry, description: typeof entry.description === 'string' ? entry.description : '' }
+        : entry)
+      : [];
+    version3 = {
+      ...input,
+      schemaVersion: 3,
+      customizations: {
+        ...customizations,
+        aliases: addDescription(customizations.aliases),
+        functions: addDescription(customizations.functions),
+      },
+    };
+  } else {
+    version3 = input;
+  }
+  return editableSettingsSchema.parse(mergeKnownDefaults(defaultSettings, version3));
 }
 
 export interface ThemeInfo {

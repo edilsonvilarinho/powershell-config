@@ -206,6 +206,8 @@ try {
     Assert-True -Condition (-not ($profileSource -match 'Invoke-WebRequest|Install-Module|Install-PSResource')) -Message 'perfil distribuido nao pode instalar ou baixar dependencias na abertura'
     Assert-True -Condition (-not ($profileSource -match '\bj8\b|\bj21\b|JAVA_HOME')) -Message 'perfil distribuido nao pode referenciar aliases Java desativados'
     Assert-True -Condition ($profileSource.Contains("Join-Path `$PSScriptRoot 'config\custom-profile.ps1'")) -Message 'perfil deve carregar customizacoes somente pelo caminho gerenciado fixo'
+    Assert-True -Condition ($profileSource.Contains('schemaVersion -notin @(1, 2, 3)')) -Message 'perfil deve aceitar settings migrados para schema v3'
+    Assert-True -Condition ($profileSource.Contains('$global:PowerShellConfigCustomHelpEntries')) -Message 'helper deve consumir metadados das customizacoes geradas'
     Assert-True -Condition ($profileSource.Contains('Test-Path -LiteralPath $powerShellConfigCustomProfilePath -PathType Leaf')) -Message 'perfil deve validar o arquivo gerenciado antes do dot-source'
 
     Get-Content -LiteralPath (Join-Path $repoRoot 'powershell\takuya.omp.json') -Raw | ConvertFrom-Json -ErrorAction Stop | Out-Null
@@ -226,7 +228,7 @@ try {
     }
 
     $defaultSettings = Get-Content -LiteralPath (Join-Path $repoRoot 'powershell\settings.default.json') -Raw | ConvertFrom-Json -ErrorAction Stop
-    Assert-Equal -Expected 2 -Actual $defaultSettings.schemaVersion -Message 'configuracao visual deve iniciar no schema v2'
+    Assert-Equal -Expected 3 -Actual $defaultSettings.schemaVersion -Message 'configuracao visual deve iniciar no schema v3'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.aliases).Count -Message 'aliases personalizados devem iniciar vazios'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.functions).Count -Message 'funcoes personalizadas devem iniciar vazias'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.commands).Count -Message 'comandos personalizados devem iniciar vazios'

@@ -59,6 +59,7 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
   const [mode, setMode] = useState<CreatorMode>('shortcut');
   const [name, setName] = useState('');
   const [action, setAction] = useState('');
+  const [description, setDescription] = useState('');
   const [forwardArguments, setForwardArguments] = useState(true);
   const [creatorError, setCreatorError] = useState<string | null>(null);
   const [creatorBusy, setCreatorBusy] = useState(false);
@@ -99,6 +100,7 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
     setCreatorError(null);
     const trimmedName = name.trim();
     const trimmedAction = action.trim();
+    const trimmedDescription = description.trim();
     if (!trimmedAction) {
       setCreatorError('Informe o que deve ser executado.');
       return;
@@ -106,6 +108,10 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
     if (mode === 'shortcut') {
       const problem = nameProblem(trimmedName);
       if (problem) { setCreatorError(problem); return; }
+      if (!trimmedDescription) {
+        setCreatorError('Informe uma descrição para incluir esta personalização na ajuda do PowerShell.');
+        return;
+      }
       if (/[\r\n;|{}&<>]/.test(trimmedAction)) {
         setCreatorError('No criador simplificado, use um comando com argumentos, sem encadeamentos ou blocos. Para scripts, use o modo avançado.');
         return;
@@ -120,7 +126,7 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
       if (mode === 'shortcut' && isAliasTarget(trimmedAction) && forwardArguments) {
         onChange({
           ...customizations,
-          aliases: [...customizations.aliases, { id: customizationId('alias'), enabled: true, name: trimmedName, command: trimmedAction }],
+          aliases: [...customizations.aliases, { id: customizationId('alias'), enabled: true, name: trimmedName, command: trimmedAction, description: trimmedDescription }],
         });
       } else if (mode === 'shortcut') {
         const id = customizationId('function');
@@ -133,7 +139,7 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
         }
         onChange({
           ...customizations,
-          functions: [...customizations.functions, { id, enabled: true, name: trimmedName, body }],
+          functions: [...customizations.functions, { id, enabled: true, name: trimmedName, body, description: trimmedDescription }],
         });
       } else {
         const id = customizationId('command');
@@ -150,6 +156,7 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
       }
       setName('');
       setAction('');
+      setDescription('');
       setForwardArguments(true);
     } catch {
       setCreatorError('Não foi possível validar essa personalização. Tente novamente ou consulte os logs.');
@@ -165,9 +172,9 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
       if (problem) { setCreatorError(problem); return; }
     }
     if (template.kind === 'alias') {
-      onChange({ ...customizations, aliases: [...customizations.aliases, { id: customizationId('alias'), enabled: true, name: template.name, command: template.command }] });
+      onChange({ ...customizations, aliases: [...customizations.aliases, { id: customizationId('alias'), enabled: true, name: template.name, command: template.command, description: template.description }] });
     } else if (template.kind === 'function') {
-      onChange({ ...customizations, functions: [...customizations.functions, { id: customizationId('function'), enabled: true, name: template.name, body: template.body }] });
+      onChange({ ...customizations, functions: [...customizations.functions, { id: customizationId('function'), enabled: true, name: template.name, body: template.body, description: template.description }] });
     } else {
       onChange({ ...customizations, commands: [...customizations.commands, { id: customizationId('command'), enabled: true, label: template.label, code: template.code }] });
     }
@@ -199,6 +206,9 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
       <EditorField label="O que deve ser executado" hint={mode === 'shortcut' ? 'Aceita um comando completo, como git commit.' : 'Código executado automaticamente em cada nova sessão.'}>
         <input value={action} maxLength={32_768} placeholder={mode === 'shortcut' ? 'git commit' : "$env:APP_ENV = 'local'"} onChange={(event) => { setAction(event.target.value); setCreatorError(null); }} />
       </EditorField>
+      {mode === 'shortcut' && <div className="guided-description"><EditorField label="Descrição" hint="Obrigatória. Será exibida no Show-TerminalHelp.">
+        <input required value={description} maxLength={256} placeholder="Ex.: Cria um commit Git" onChange={(event) => { setDescription(event.target.value); setCreatorError(null); }} />
+      </EditorField></div>}
       {mode === 'shortcut' && <label className="forward-arguments"><input type="checkbox" checked={forwardArguments} onChange={(event) => setForwardArguments(event.target.checked)} /><span><strong>Aceitar argumentos adicionais</strong><small>Permite usar, por exemplo, gcommit -m "mensagem".</small></span></label>}
       {(name.trim() || action.trim()) && <div className="behavior-preview" role="status"><strong>Resultado</strong><span>{mode === 'shortcut' ? `Ao digitar “${name.trim() || 'nome'}${forwardArguments ? ' ...' : ''}”, será executado “${action.trim() || 'comando'}${forwardArguments && action.trim() && !isAliasTarget(action.trim()) ? ' ...' : ''}”.` : `“${action.trim() || 'comando'}” será executado ao abrir uma nova sessão.`}</span></div>}
       {creatorError && <p className="creator-error" role="alert">{creatorError}</p>}
@@ -209,8 +219,8 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
 
     <div className="customization-heading"><div><h2>Suas personalizações</h2><p>{total ? `${total} item(ns) configurado(s).` : 'Nenhuma personalização criada.'}</p></div></div>
     {total > 0 && <div className="customization-summary-list">
-      {customizations.aliases.map((entry) => <div className="customization-summary" key={entry.id}><label><input type="checkbox" checked={entry.enabled} onChange={(event) => setEnabled('aliases', entry.id, event.target.checked)} /><span><strong>{entry.name}</strong><small>Atalho para {entry.command}</small></span></label><code>{entry.name} → {entry.command}</code><button className="danger compact" onClick={() => remove('aliases', entry.id)}>Excluir</button></div>)}
-      {customizations.functions.map((entry) => <div className="customization-summary" key={entry.id}><label><input type="checkbox" checked={entry.enabled} onChange={(event) => setEnabled('functions', entry.id, event.target.checked)} /><span><strong>{entry.name}</strong><small>Ação reutilizável</small></span></label><code>{entry.body.split(/\r?\n/)[0]}</code><button className="danger compact" onClick={() => remove('functions', entry.id)}>Excluir</button></div>)}
+      {customizations.aliases.map((entry) => <div className="customization-summary" key={entry.id}><label><input type="checkbox" checked={entry.enabled} onChange={(event) => setEnabled('aliases', entry.id, event.target.checked)} /><span><strong>{entry.name}</strong><small>{entry.description || 'Descrição obrigatória pendente'}</small></span></label><code>{entry.name} → {entry.command}</code><button className="danger compact" onClick={() => remove('aliases', entry.id)}>Excluir</button></div>)}
+      {customizations.functions.map((entry) => <div className="customization-summary" key={entry.id}><label><input type="checkbox" checked={entry.enabled} onChange={(event) => setEnabled('functions', entry.id, event.target.checked)} /><span><strong>{entry.name}</strong><small>{entry.description || 'Descrição obrigatória pendente'}</small></span></label><code>{entry.body.split(/\r?\n/)[0]}</code><button className="danger compact" onClick={() => remove('functions', entry.id)}>Excluir</button></div>)}
       {customizations.commands.map((entry) => <div className="customization-summary" key={entry.id}><label><input type="checkbox" checked={entry.enabled} onChange={(event) => setEnabled('commands', entry.id, event.target.checked)} /><span><strong>{entry.label}</strong><small>Executado ao abrir o PowerShell</small></span></label><code>{entry.code.split(/\r?\n/)[0]}</code><button className="danger compact" onClick={() => remove('commands', entry.id)}>Excluir</button></div>)}
     </div>}
 
@@ -220,24 +230,26 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
         <div className="risk-notice" role="note"><strong>Execução de código local</strong><p>O código abaixo executa com as permissões da sessão. A validação verifica sintaxe, mas não limita seus efeitos.</p></div>
 
         <section className="technical-customization-section">
-          <div className="customization-heading"><div><h2>Aliases técnicos</h2><p>Use somente o nome de um comando, sem caminho, argumentos ou expressões.</p></div><button className="secondary" onClick={() => onChange({ ...customizations, aliases: [...customizations.aliases, { id: customizationId('alias'), enabled: true, name: '', command: '' }] })}>Adicionar alias</button></div>
+          <div className="customization-heading"><div><h2>Aliases técnicos</h2><p>Use somente o nome de um comando, sem caminho, argumentos ou expressões.</p></div><button className="secondary" onClick={() => onChange({ ...customizations, aliases: [...customizations.aliases, { id: customizationId('alias'), enabled: true, name: '', command: '', description: '' }] })}>Adicionar alias</button></div>
           <div className="customization-list">
             {!customizations.aliases.length && <p className="empty-customization">Nenhum alias técnico configurado.</p>}
             {customizations.aliases.map((entry) => <div className="customization-item alias-editor" key={entry.id}>
               <input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar alias ${entry.name || 'novo'}`} onChange={(event) => setEnabled('aliases', entry.id, event.target.checked)} />
               <EditorField label="Nome do alias" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'name'))}><input data-issue-id={entry.id} data-issue-field="name" required maxLength={128} value={entry.name} onChange={(event) => onChange({ ...customizations, aliases: customizations.aliases.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) })} /></EditorField>
               <EditorField label="Comando de destino" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'command'))} hint="Ex.: Get-ChildItem"><input data-issue-id={entry.id} data-issue-field="command" required maxLength={256} placeholder="Get-ChildItem" value={entry.command} onChange={(event) => onChange({ ...customizations, aliases: customizations.aliases.map((item) => item.id === entry.id ? { ...item, command: event.target.value } : item) })} /></EditorField>
+              <EditorField label="Descrição" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'description'))} hint="Exibida no Show-TerminalHelp"><input data-issue-id={entry.id} data-issue-field="description" required maxLength={256} value={entry.description} onChange={(event) => onChange({ ...customizations, aliases: customizations.aliases.map((item) => item.id === entry.id ? { ...item, description: event.target.value } : item) })} /></EditorField>
               <button className="danger compact" aria-label={`Excluir alias ${entry.name || 'novo'}`} onClick={() => remove('aliases', entry.id)}>Excluir</button>
             </div>)}
           </div>
         </section>
 
         <section className="technical-customization-section">
-          <div className="customization-heading"><div><h2>Funções técnicas</h2><p>Use para parâmetros, argumentos fixos ou lógica com múltiplas linhas.</p></div><button className="secondary" onClick={() => onChange({ ...customizations, functions: [...customizations.functions, { id: customizationId('function'), enabled: true, name: '', body: '' }] })}>Adicionar função</button></div>
+          <div className="customization-heading"><div><h2>Funções técnicas</h2><p>Use para parâmetros, argumentos fixos ou lógica com múltiplas linhas.</p></div><button className="secondary" onClick={() => onChange({ ...customizations, functions: [...customizations.functions, { id: customizationId('function'), enabled: true, name: '', body: '', description: '' }] })}>Adicionar função</button></div>
           <div className="customization-list">
             {!customizations.functions.length && <p className="empty-customization">Nenhuma função técnica configurada.</p>}
             {customizations.functions.map((entry) => <div className="customization-item code-editor" key={entry.id}>
               <div className="customization-item-header"><input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar função ${entry.name || 'nova'}`} onChange={(event) => setEnabled('functions', entry.id, event.target.checked)} /><EditorField label="Nome da função" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'name'))}><input data-issue-id={entry.id} data-issue-field="name" required maxLength={128} value={entry.name} onChange={(event) => onChange({ ...customizations, functions: customizations.functions.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) })} /></EditorField><button className="danger compact" aria-label={`Excluir função ${entry.name || 'nova'}`} onClick={() => remove('functions', entry.id)}>Excluir</button></div>
+              <EditorField label="Descrição" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'description'))} hint="Exibida no Show-TerminalHelp"><input data-issue-id={entry.id} data-issue-field="description" required maxLength={256} value={entry.description} onChange={(event) => onChange({ ...customizations, functions: customizations.functions.map((item) => item.id === entry.id ? { ...item, description: event.target.value } : item) })} /></EditorField>
               <EditorField label="Corpo PowerShell" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'body'))} hint="Pode começar com param(...) e conter múltiplas linhas."><textarea data-issue-id={entry.id} data-issue-field="body" required maxLength={32_768} spellCheck={false} value={entry.body} onChange={(event) => onChange({ ...customizations, functions: customizations.functions.map((item) => item.id === entry.id ? { ...item, body: event.target.value } : item) })} /></EditorField>
             </div>)}
           </div>

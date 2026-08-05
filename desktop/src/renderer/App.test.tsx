@@ -55,7 +55,7 @@ describe('App', () => {
     expect(await screen.findByText('Seu PowerShell, sob controle.')).toBeInTheDocument();
     expect(screen.getByText('7.5.2')).toBeInTheDocument();
     expect(screen.getByText('29.11.0')).toBeInTheDocument();
-    expect(screen.getByText(/schema v2 válido/)).toBeInTheDocument();
+    expect(screen.getByText(/schema v3 válido/)).toBeInTheDocument();
   });
 
   it('renderiza as cinco telas principais pela navegação lateral', async () => {
@@ -137,6 +137,7 @@ describe('App', () => {
     expect(screen.getByText('O que você quer criar?')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/^Nome que você quer digitar/), { target: { value: 'gcommit' } });
     fireEvent.change(screen.getByLabelText(/^O que deve ser executado/), { target: { value: 'git commit' } });
+    fireEvent.change(screen.getByLabelText(/^Descrição/), { target: { value: 'Cria um commit Git' } });
     expect(screen.getByText(/Ao digitar “gcommit/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Adicionar personalização' }));
 
@@ -145,6 +146,20 @@ describe('App', () => {
     ]));
     expect(await screen.findByText('gcommit')).toBeInTheDocument();
     expect(screen.getAllByText('git commit @args').length).toBeGreaterThan(0);
+    expect(screen.getByText('Cria um commit Git')).toBeInTheDocument();
+  });
+
+  it('bloqueia a criação de atalho sem descrição', async () => {
+    const api = installApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
+
+    fireEvent.change(screen.getByLabelText(/^Nome que você quer digitar/), { target: { value: 'gcommit' } });
+    fireEvent.change(screen.getByLabelText(/^O que deve ser executado/), { target: { value: 'git commit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar personalização' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Informe uma descrição');
+    expect(api.validateCustomizations).not.toHaveBeenCalled();
   });
 
   it('bloqueia alias nativo e explica o conflito sem erro técnico', async () => {
@@ -153,6 +168,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
     fireEvent.change(screen.getByLabelText(/^Nome que você quer digitar/), { target: { value: 'gc' } });
     fireEvent.change(screen.getByLabelText(/^O que deve ser executado/), { target: { value: 'git commit' } });
+    fireEvent.change(screen.getByLabelText(/^Descrição/), { target: { value: 'Cria um commit Git' } });
     fireEvent.click(screen.getByRole('button', { name: 'Adicionar personalização' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('gc');

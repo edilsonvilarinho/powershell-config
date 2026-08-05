@@ -8,6 +8,10 @@ function commentLabel(label: string): string {
   return label.replace(/\r?\n/g, ' ').trim();
 }
 
+function powerShellSingleQuoted(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
 export function buildCustomProfile(settings: Pick<AppSettings, 'customizations'>): string {
   const sections: string[] = [
     '# Arquivo gerado pelo PowerShell Config. Não edite manualmente.',
@@ -15,6 +19,16 @@ export function buildCustomProfile(settings: Pick<AppSettings, 'customizations'>
   ];
 
   const functions = settings.customizations.functions.filter((entry) => entry.enabled);
+  const aliases = settings.customizations.aliases.filter((entry) => entry.enabled);
+  sections.push('', '$global:PowerShellConfigCustomHelpEntries = @(');
+  for (const entry of aliases) {
+    sections.push(`    [pscustomobject]@{ Kind = 'Alias'; Name = ${powerShellSingleQuoted(entry.name)}; Target = ${powerShellSingleQuoted(entry.command)}; Description = ${powerShellSingleQuoted(entry.description)} }`);
+  }
+  for (const entry of functions) {
+    sections.push(`    [pscustomobject]@{ Kind = 'Function'; Name = ${powerShellSingleQuoted(entry.name)}; Target = $null; Description = ${powerShellSingleQuoted(entry.description)} }`);
+  }
+  sections.push(')');
+
   if (functions.length) {
     sections.push('', '# Funções personalizadas');
     for (const entry of functions) {
@@ -22,7 +36,6 @@ export function buildCustomProfile(settings: Pick<AppSettings, 'customizations'>
     }
   }
 
-  const aliases = settings.customizations.aliases.filter((entry) => entry.enabled);
   if (aliases.length) {
     sections.push('', '# Aliases personalizados');
     for (const entry of aliases) {

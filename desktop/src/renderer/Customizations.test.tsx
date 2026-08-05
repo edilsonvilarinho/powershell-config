@@ -44,15 +44,17 @@ describe('Customizations', () => {
   });
 
   it('mantém editores preenchidos dentro das respectivas seções técnicas', () => {
-    renderCustomizations({
-      aliases: [{ id: 'alias-1', enabled: true, name: 'listar', command: 'Get-ChildItem' }],
-      functions: [{ id: 'function-1', enabled: true, name: 'gcommit', body: 'git commit @args' }],
+    const { container } = renderCustomizations({
+      aliases: [{ id: 'alias-1', enabled: true, name: 'listar', command: 'Get-ChildItem', description: 'Lista arquivos' }],
+      functions: [{ id: 'function-1', enabled: true, name: 'gcommit', body: 'git commit @args', description: 'Cria um commit Git' }],
       commands: [{ id: 'command-1', enabled: true, label: 'Ambiente local', code: "$env:APP_ENV = 'local'" }],
     });
 
     expect(screen.getByLabelText('Nome do alias')).toHaveValue('listar');
     expect(screen.getByLabelText(/^Comando de destino/)).toHaveValue('Get-ChildItem');
     expect(screen.getByLabelText('Nome da função')).toHaveValue('gcommit');
+    expect(container.querySelector('[data-issue-id="alias-1"][data-issue-field="description"]')).toHaveValue('Lista arquivos');
+    expect(container.querySelector('[data-issue-id="function-1"][data-issue-field="description"]')).toHaveValue('Cria um commit Git');
     expect(screen.getByLabelText(/^Corpo PowerShell/)).toHaveValue('git commit @args');
     expect(screen.getByLabelText('Identificação')).toHaveValue('Ambiente local');
     expect(screen.getByLabelText('Código PowerShell')).toHaveValue("$env:APP_ENV = 'local'");
@@ -62,15 +64,15 @@ describe('Customizations', () => {
   it('abre o modo avançado e destaca o campo com erro de validação', () => {
     renderCustomizations(
       {
-        aliases: [{ id: 'alias-erro', enabled: true, name: 'listar', command: 'Get-ChildItem' }],
+        aliases: [{ id: 'alias-erro', enabled: true, name: 'listar', command: 'Get-ChildItem', description: '' }],
         functions: [],
         commands: [],
       },
-      [{ id: 'alias-erro', field: 'name', message: 'Nome inválido.', line: 2, column: 4 }],
+      [{ id: 'alias-erro', field: 'description', message: 'Descrição obrigatória.' }],
     );
 
     expect(screen.getByText('Modo avançado — editar PowerShell gerado').closest('details')).toHaveAttribute('open');
-    expect(screen.getByRole('alert')).toHaveTextContent('Linha 2, coluna 4: Nome inválido.');
-    expect(screen.getByLabelText(/^Nome do alias/)).toHaveFocus();
+    expect(screen.getByRole('alert')).toHaveTextContent('Descrição obrigatória.');
+    expect(screen.getAllByLabelText(/^Descrição/).find((field) => field.dataset.issueId === 'alias-erro')).toHaveFocus();
   });
 });

@@ -11,6 +11,7 @@ Instalador e aplicativo desktop para configurar um ambiente PowerShell moderno n
 - Exibe o estado do ambiente e identifica configurações ausentes.
 - Permite escolher, pesquisar, favoritar e importar temas do Oh My Posh.
 - Administra opções do perfil, aliases, funções e comandos personalizados.
+- Inclui automaticamente aliases e funções personalizados no `Show-TerminalHelp` usando a descrição obrigatória informada no cadastro.
 - Ajusta esquema de cores, fonte, tamanho, opacidade, acrílico e elevação do Windows Terminal.
 - Aplica alterações com validação, backup, controle de conflito e restauração.
 - Funciona localmente, sem telemetria e sem carregar páginas remotas no aplicativo.
