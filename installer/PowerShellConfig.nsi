@@ -97,6 +97,9 @@ appPayloadInvalid:
     MessageBox MB_OK|MB_ICONSTOP "A atualizacao do aplicativo esta incompleta. A versao anterior e as configuracoes foram preservadas."
     Abort
 appPayloadReady:
+    ; SetOutPath also changes the installer's current working directory.
+    ; Leave app.update before renaming it, otherwise Windows rejects the swap.
+    SetOutPath "$INSTDIR"
     RMDir /r "$INSTDIR\app.previous"
     IfFileExists "$INSTDIR\app\*.*" appSwapExisting appSwapNew
 appSwapExisting:

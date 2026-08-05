@@ -270,6 +270,10 @@ try {
     Assert-True -Condition ($nsiContent.Contains('IfFileExists "$INSTDIR\state\install-state.json" existingInstallDetected installModeDetected')) -Message 'upgrade deve ser detectado por estado do instalador'
     Assert-True -Condition ($nsiContent.Contains('SKIP upgrade; config state backups perfil terminal fontes modulos e startup preservados')) -Message 'upgrade deve registrar explicitamente a preservacao do ambiente'
     Assert-True -Condition ($nsiContent.Contains('SetOutPath "$INSTDIR\app.update"')) -Message 'novo aplicativo deve ser extraido em staging separado'
+    $appPayloadReadyIndex = $nsiContent.IndexOf('appPayloadReady:', [StringComparison]::Ordinal)
+    $appSwapBackupIndex = $nsiContent.IndexOf('Rename "$INSTDIR\app" "$INSTDIR\app.previous"', [StringComparison]::Ordinal)
+    $safeSwapOutPathIndex = $nsiContent.IndexOf('SetOutPath "$INSTDIR"', $appPayloadReadyIndex, [StringComparison]::Ordinal)
+    Assert-True -Condition ($appPayloadReadyIndex -ge 0 -and $safeSwapOutPathIndex -gt $appPayloadReadyIndex -and $safeSwapOutPathIndex -lt $appSwapBackupIndex) -Message 'swap deve sair de app.update antes de renomear os diretorios no Windows'
     Assert-True -Condition ($nsiContent.Contains('Rename "$INSTDIR\app" "$INSTDIR\app.previous"')) -Message 'aplicativo anterior deve ser preservado antes do swap'
     Assert-True -Condition ($nsiContent.Contains('Rename "$INSTDIR\app.previous" "$INSTDIR\app"')) -Message 'falha no swap deve restaurar o aplicativo anterior'
     foreach ($protectedDirectory in @('config', 'state', 'backups')) {
