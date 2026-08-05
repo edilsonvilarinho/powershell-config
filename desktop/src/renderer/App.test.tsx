@@ -58,6 +58,21 @@ describe('App', () => {
     expect(screen.getByText(/schema v2 válido/)).toBeInTheDocument();
   });
 
+  it('renderiza as cinco telas principais pela navegação lateral', async () => {
+    installApi();
+    render(<App />);
+
+    expect(await screen.findByText('Seu PowerShell, sob controle.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Temas Oh My Posh$/ }));
+    expect(screen.getByText('Escolha o prompt sem sair do app.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Perfil PowerShell$/ }));
+    expect(screen.getByText('Comportamento e código do seu shell.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Windows Terminal$/ }));
+    expect(screen.getByText('Aparência sem substituir seu JSON.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Configurações$/ }));
+    expect(screen.getByText('Preferências e recuperação.')).toBeInTheDocument();
+  });
+
   it('navega para configurações e alterna para o tema claro no rascunho', async () => {
     installApi();
     render(<App />);
