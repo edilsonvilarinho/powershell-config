@@ -10,8 +10,9 @@ Instalador e aplicativo desktop para configurar um ambiente PowerShell moderno n
 - Instala os módulos `posh-git`, `Terminal-Icons` e `PSReadLine`, além da fonte Hack Nerd Font.
 - Exibe o estado do ambiente e identifica configurações ausentes.
 - Permite escolher, pesquisar, favoritar e importar temas do Oh My Posh.
-- Administra opções do perfil, aliases, funções e comandos personalizados.
-- Inclui automaticamente aliases e funções personalizados no `Show-TerminalHelp` usando a descrição obrigatória informada no cadastro.
+- Administra opções do perfil, aliases, funções e comandos personalizados em uma lista única, com edição sob demanda.
+- Gera a ajuda do terminal automaticamente: cada atalho padrão é registrado no mesmo bloco que o define e as personalizações entram pela descrição obrigatória do cadastro. No PowerShell, use `help` (sem argumentos) ou `Show-TerminalHelp`; `help <comando>` continua chamando o `Get-Help` nativo.
+- Mostra na tela **Perfil PowerShell** a prévia da ajuda que o próximo terminal exibirá.
 - Ajusta esquema de cores, fonte, tamanho, opacidade, acrílico e elevação do Windows Terminal.
 - Aplica alterações com validação, backup, controle de conflito e restauração.
 - Exporta e importa configurações, personalizações, favoritos e temas em um pacote portátil validado.

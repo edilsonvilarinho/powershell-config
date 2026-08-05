@@ -26,10 +26,15 @@ describe('layout responsivo', () => {
     expect(stylesheet).toContain('.theme-list { height: 280px;');
   });
 
-  it('mantém o modo avançado organizado sem margens negativas', () => {
-    expect(stylesheet).toContain('.advanced-customizations-content { display: grid; gap: 24px; min-width: 0; padding-top: 24px;');
-    expect(stylesheet).toContain('.technical-customization-section { display: grid; gap: 10px; min-width: 0;');
-    expect(stylesheet).toContain('.customization-list { display: grid; gap: 10px;');
-    expect(stylesheet).not.toMatch(/\.customization-(?:summary-list|list)\s*\{[^}]*margin-top:\s*-/);
+  it('mantém as personalizações em lista única sem margens negativas', () => {
+    expect(stylesheet).toContain('.customization-list { display: grid; gap: 8px;');
+    expect(stylesheet).toContain('.customization-row { min-width: 0;');
+    expect(stylesheet).toContain('.customization-row-editor { display: grid; gap: 12px; min-width: 0;');
+    expect(stylesheet).not.toContain('.technical-customization-section');
+    expect(stylesheet).not.toMatch(/\.customization-(?:row|list)\s*\{[^}]*margin-top:\s*-/);
+  });
+
+  it('exibe a prévia da ajuda sem estourar a altura da página', () => {
+    expect(stylesheet).toContain('.help-preview { display: grid; gap: 3px; max-height: 420px; overflow: auto;');
   });
 });

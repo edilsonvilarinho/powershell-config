@@ -39,6 +39,26 @@ function Get-PowerShellConfigSetting {
     return $current
 }
 
+# Registro da ajuda: cada comando e registrado no mesmo bloco que o define,
+# entao Show-TerminalHelp descreve exatamente o que existe nesta sessao.
+$global:PowerShellConfigHelpEntries = [System.Collections.Generic.List[object]]::new()
+
+function Add-PowerShellConfigHelpEntry {
+    param(
+        [Parameter(Mandatory = $true)][string]$Section,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [AllowNull()][string]$Target,
+        [Parameter(Mandatory = $true)][string]$Description
+    )
+
+    $global:PowerShellConfigHelpEntries.Add([pscustomobject]@{
+        Section = $Section
+        Name = $Name
+        Target = $Target
+        Description = $Description
+    })
+}
+
 $openSshPath = Join-Path $env:WINDIR 'System32\OpenSSH\ssh.exe'
 if (Test-Path -LiteralPath $openSshPath) {
     $env:GIT_SSH = $openSshPath
@@ -59,6 +79,7 @@ if ($isInteractiveConsole -and $psReadLineEnabled -and (Get-Module -ListAvailabl
         Set-PSReadLineOption -BellStyle (Get-PowerShellConfigSetting -Path @('psReadLine', 'bellStyle') -DefaultValue 'None')
         if (Get-PowerShellConfigSetting -Path @('psReadLine', 'ctrlD') -DefaultValue $true) {
             Set-PSReadLineKeyHandler -Chord 'Ctrl+d' -Function DeleteChar
+            Add-PowerShellConfigHelpEntry -Section 'Teclas' -Name 'Ctrl+d' -Target $null -Description 'Apaga o caractere atual'
         }
         $predictionSource = Get-PowerShellConfigSetting -Path @('psReadLine', 'predictionSource') -DefaultValue 'History'
         Set-PSReadLineOption -PredictionSource $predictionSource -ErrorAction SilentlyContinue
@@ -95,19 +116,23 @@ foreach ($aliasName in @('ls', 'dir', 'll')) {
     if (Get-PowerShellConfigSetting -Path @('aliases', $aliasName) -DefaultValue $true) {
         Remove-Item "Alias:$aliasName" -ErrorAction SilentlyContinue
         Set-Alias $aliasName Invoke-DirectoryListing
+        Add-PowerShellConfigHelpEntry -Section 'Atalhos' -Name $aliasName -Target 'Invoke-DirectoryListing' -Description 'Lista o diretório com Terminal-Icons'
     }
 }
 
 if ((Get-PowerShellConfigSetting -Path @('aliases', 'g') -DefaultValue $true) -and (Get-Command git -ErrorAction SilentlyContinue)) {
     Set-Alias g git
+    Add-PowerShellConfigHelpEntry -Section 'Atalhos' -Name 'g' -Target 'git' -Description 'Executa o Git'
 }
 
 if ((Get-PowerShellConfigSetting -Path @('aliases', 'vim') -DefaultValue $true) -and (Get-Command nvim -ErrorAction SilentlyContinue)) {
     Set-Alias vim nvim
+    Add-PowerShellConfigHelpEntry -Section 'Atalhos' -Name 'vim' -Target 'nvim' -Description 'Abre o Neovim'
 }
 
 if (Get-PowerShellConfigSetting -Path @('aliases', 'grep') -DefaultValue $true) {
     Set-Alias grep findstr
+    Add-PowerShellConfigHelpEntry -Section 'Atalhos' -Name 'grep' -Target 'findstr' -Description 'Filtra texto com o findstr'
 }
 
 $gitBinDirectory = Join-Path $env:ProgramFiles 'Git\usr\bin'
@@ -115,9 +140,11 @@ $tigPath = Join-Path $gitBinDirectory 'tig.exe'
 $lessPath = Join-Path $gitBinDirectory 'less.exe'
 if ((Get-PowerShellConfigSetting -Path @('aliases', 'tig') -DefaultValue $true) -and (Test-Path -LiteralPath $tigPath)) {
     Set-Alias tig $tigPath
+    Add-PowerShellConfigHelpEntry -Section 'Atalhos' -Name 'tig' -Target 'tig.exe' -Description 'Navegador Git do Git for Windows'
 }
 if ((Get-PowerShellConfigSetting -Path @('aliases', 'less') -DefaultValue $true) -and (Test-Path -LiteralPath $lessPath)) {
     Set-Alias less $lessPath
+    Add-PowerShellConfigHelpEntry -Section 'Atalhos' -Name 'less' -Target 'less.exe' -Description 'Paginador do Git for Windows'
 }
 
 function which {
@@ -146,56 +173,89 @@ function lastBootUpTime {
     (Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
 }
 
-function Show-TerminalHelp {
-    $helpText = @'
-# Ambiente PowerShell
+Add-PowerShellConfigHelpEntry -Section 'Utilitários' -Name 'which <comando>' -Target $null -Description 'Informa o caminho do executável'
+Add-PowerShellConfigHelpEntry -Section 'Utilitários' -Name 'history -c' -Target $null -Description 'Limpa o histórico da sessão e do PSReadLine'
+Add-PowerShellConfigHelpEntry -Section 'Utilitários' -Name 'lastBootUpTime' -Target $null -Description 'Informa o tempo desde a última inicialização'
 
-## Atalhos
+function ConvertTo-PowerShellConfigMarkdownText {
+    param([AllowEmptyString()][string]$Value)
 
-* `g`: Git
-* `vim`: Neovim
-* `grep`: findstr
-* `tig`: navegador Git do Git for Windows
-* `less`: paginador do Git for Windows
-* `ls`, `dir`, `ll`: listagem com Terminal-Icons
+    $escaped = $Value.Replace('\', '\\')
+    foreach ($character in @('`', '*', '_', '{', '}', '[', ']', '(', ')', '<', '>', '#', '+', '-', '.', '!', '|')) {
+        $escaped = $escaped.Replace($character, "\$character")
+    }
+    return $escaped
+}
 
-## Utilitarios
-
-* `history -c`: limpa o historico da sessao e do PSReadLine
-* `lastBootUpTime`: informa o tempo desde a ultima inicializacao
-* `which <comando>`: informa o caminho do executavel
-'@
-
-    $customHelpEntries = @($global:PowerShellConfigCustomHelpEntries | Where-Object { $null -ne $_ })
-    if ($customHelpEntries.Count -gt 0) {
-        function ConvertTo-PowerShellConfigMarkdownText {
-            param([AllowEmptyString()][string]$Value)
-
-            $escaped = $Value.Replace('\', '\\')
-            foreach ($character in @('`', '*', '_', '{', '}', '[', ']', '(', ')', '<', '>', '#', '+', '-', '.', '!', '|')) {
-                $escaped = $escaped.Replace($character, "\$character")
-            }
-            return $escaped
+function Get-PowerShellConfigHelpEntries {
+    $entries = @($global:PowerShellConfigHelpEntries | Where-Object { $null -ne $_ })
+    foreach ($entry in @($global:PowerShellConfigCustomHelpEntries | Where-Object { $null -ne $_ })) {
+        $section = if ([string]$entry.Kind -eq 'Startup') { 'Ao abrir a sessão' } else { 'Personalizações' }
+        $target = if ([string]::IsNullOrWhiteSpace([string]$entry.Target)) { $null } else { [string]$entry.Target }
+        $entries += [pscustomobject]@{
+            Section = $section
+            Name = [string]$entry.Name
+            Target = $target
+            Description = [string]$entry.Description
         }
+    }
+    return $entries
+}
 
-        $helpText = $helpText.TrimEnd() + "`n`n## Personalizações"
-        foreach ($entry in $customHelpEntries) {
-            $name = [string]$entry.Name
-            $description = ConvertTo-PowerShellConfigMarkdownText -Value ([string]$entry.Description)
-            if ($entry.Kind -eq 'Alias') {
-                $target = [string]$entry.Target
-                $helpText += "`n`n* ``$name`` → ``$target``: $description"
-            } elseif ($entry.Kind -eq 'Function') {
-                $helpText += "`n`n* ``$name``: $description"
+function Show-TerminalHelp {
+    $useMarkdown = $null -ne (Get-Command Show-Markdown -ErrorAction SilentlyContinue)
+    $entries = @(Get-PowerShellConfigHelpEntries)
+    $lines = @('# Ambiente PowerShell')
+
+    foreach ($section in @('Atalhos', 'Utilitários', 'Teclas', 'Personalizações', 'Ao abrir a sessão')) {
+        $sectionEntries = @($entries | Where-Object { $_.Section -eq $section })
+        if ($sectionEntries.Count -eq 0) { continue }
+        $lines += @('', "## $section", '')
+        foreach ($entry in $sectionEntries) {
+            $description = [string]$entry.Description
+            if ($useMarkdown) {
+                $description = ConvertTo-PowerShellConfigMarkdownText -Value $description
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$entry.Target)) {
+                $lines += "* ``$($entry.Name)``: $description"
+            } else {
+                $lines += "* ``$($entry.Name)`` → ``$($entry.Target)``: $description"
             }
         }
     }
 
-    if (Get-Command Show-Markdown -ErrorAction SilentlyContinue) {
+    if ($entries.Count -eq 0) {
+        $lines += @('', 'Nenhum comando gerenciado está ativo nesta sessão.')
+    }
+
+    $helpText = $lines -join "`n"
+    if ($useMarkdown) {
         $helpText | Show-Markdown
     } else {
         Write-Host $helpText
     }
+}
+
+# O `help` nativo e preservado: sem argumentos exibe a ajuda deste ambiente,
+# com argumentos continua delegando ao Get-Help original. A captura ignora o
+# proprio wrapper para que recarregar o perfil nao gere recursao.
+if ($null -eq $global:PowerShellConfigOriginalHelp) {
+    $existingHelpScript = (Get-Command help -CommandType Function -ErrorAction SilentlyContinue).ScriptBlock
+    if ($null -ne $existingHelpScript -and $existingHelpScript.ToString() -notmatch 'Show-TerminalHelp') {
+        $global:PowerShellConfigOriginalHelp = $existingHelpScript
+    }
+}
+
+function help {
+    if ($args.Count -eq 0) {
+        Show-TerminalHelp
+        return
+    }
+    if ($null -ne $global:PowerShellConfigOriginalHelp) {
+        & $global:PowerShellConfigOriginalHelp @args
+        return
+    }
+    Microsoft.PowerShell.Core\Get-Help @args
 }
 
 # Customizações são geradas pelo aplicativo em um único caminho fixo e têm a mesma

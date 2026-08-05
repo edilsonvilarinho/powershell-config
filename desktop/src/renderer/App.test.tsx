@@ -152,9 +152,18 @@ describe('App', () => {
     await waitFor(() => expect(api.validateCustomizations).toHaveBeenCalledWith([
       expect.objectContaining({ kind: 'function', name: 'gcommit', code: 'git commit @args' }),
     ]));
-    expect(await screen.findByText('gcommit')).toBeInTheDocument();
-    expect(screen.getAllByText('git commit @args').length).toBeGreaterThan(0);
-    expect(screen.getByText('Cria um commit Git')).toBeInTheDocument();
+    const list = await waitFor(() => {
+      const element = document.querySelector('.customization-list');
+      expect(element).not.toBeNull();
+      return element as HTMLElement;
+    });
+    expect(within(list).getByText('gcommit')).toBeInTheDocument();
+    expect(within(list).getByText('git commit @args')).toBeInTheDocument();
+    expect(within(list).getByText('Cria um commit Git')).toBeInTheDocument();
+
+    const helpPreview = document.querySelector('.help-preview') as HTMLElement;
+    expect(within(helpPreview).getByText('gcommit')).toBeInTheDocument();
+    expect(helpPreview.textContent).toContain('Cria um commit Git');
   });
 
   it('bloqueia a criação de atalho sem descrição', async () => {
@@ -184,7 +193,7 @@ describe('App', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('gcommit');
   });
 
-  it('oferece modelos clicáveis e mantém os editores técnicos no modo avançado', async () => {
+  it('oferece modelos clicáveis e abre o editor técnico da própria linha', async () => {
     installApi();
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
@@ -192,11 +201,27 @@ describe('App', () => {
     const template = screen.getByText('Formatar JSON').closest('article');
     expect(template).not.toBeNull();
     fireEvent.click(within(template as HTMLElement).getByRole('button', { name: 'Usar modelo' }));
-    expect(screen.getByText('Show-Json')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/Modo avançado/));
+    const list = document.querySelector('.customization-list') as HTMLElement;
+    expect(within(list).getByText('Show-Json')).toBeInTheDocument();
+
+    fireEvent.click(within(list).getByRole('button', { name: 'Editar' }));
     expect(screen.getByLabelText('Nome da função')).toHaveValue('Show-Json');
     expect((screen.getByLabelText(/^Corpo PowerShell/) as HTMLTextAreaElement).value).toContain('ConvertFrom-Json');
+  });
+
+  it('mostra na prévia da ajuda somente os atalhos padrão habilitados', async () => {
+    installApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
+
+    const helpPreview = document.querySelector('.help-preview') as HTMLElement;
+    expect(helpPreview.textContent).toContain('## Atalhos');
+    expect(helpPreview.textContent).toContain('lastBootUpTime');
+    expect(within(helpPreview).getByText('vim')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'vim' }));
+    expect(within(document.querySelector('.help-preview') as HTMLElement).queryByText('vim')).not.toBeInTheDocument();
   });
 
   it('remove mensagens de sucesso e erro automaticamente depois de cinco segundos', async () => {

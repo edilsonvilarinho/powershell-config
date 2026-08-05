@@ -220,6 +220,19 @@ try {
     Assert-True -Condition ($profileSource.Contains("Join-Path `$PSScriptRoot 'config\custom-profile.ps1'")) -Message 'perfil deve carregar customizacoes somente pelo caminho gerenciado fixo'
     Assert-True -Condition ($profileSource.Contains('schemaVersion -notin @(1, 2, 3)')) -Message 'perfil deve aceitar settings migrados para schema v3'
     Assert-True -Condition ($profileSource.Contains('$global:PowerShellConfigCustomHelpEntries')) -Message 'helper deve consumir metadados das customizacoes geradas'
+    foreach ($aliasName in @('g', 'vim', 'grep', 'tig', 'less', 'ls', 'dir', 'll')) {
+        $registrationPattern = if ($aliasName -in @('ls', 'dir', 'll')) {
+            'Add-PowerShellConfigHelpEntry\s+-Section\s+''Atalhos''\s+-Name\s+\$aliasName'
+        } else {
+            "Add-PowerShellConfigHelpEntry\s+-Section\s+'Atalhos'\s+-Name\s+'$aliasName'"
+        }
+        Assert-True -Condition ($profileSource -match $registrationPattern) -Message "ajuda deve ser registrada junto com o alias: $aliasName"
+    }
+    Assert-True -Condition (-not ($profileSource -match '\*\s*`tig`:\s*navegador Git')) -Message 'ajuda nao pode voltar a ter lista fixa de atalhos'
+    Assert-True -Condition ($profileSource.Contains('$global:PowerShellConfigHelpEntries')) -Message 'ajuda deve ser montada a partir do registro da sessao'
+    Assert-True -Condition ($profileSource -match '(?m)^function help \{') -Message 'perfil deve expor a ajuda pelo comando help'
+    Assert-True -Condition ($profileSource.Contains('& $global:PowerShellConfigOriginalHelp @args')) -Message 'help com argumentos deve delegar ao Get-Help original'
+    Assert-True -Condition ($profileSource.Contains("-notmatch 'Show-TerminalHelp'")) -Message 'captura do help original deve ignorar o proprio wrapper'
     Assert-True -Condition ($profileSource.Contains('Test-Path -LiteralPath $powerShellConfigCustomProfilePath -PathType Leaf')) -Message 'perfil deve validar o arquivo gerenciado antes do dot-source'
 
     Get-Content -LiteralPath (Join-Path $repoRoot 'powershell\takuya.omp.json') -Raw | ConvertFrom-Json -ErrorAction Stop | Out-Null

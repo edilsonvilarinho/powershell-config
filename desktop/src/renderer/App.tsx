@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { settingsSchema, type AppSettings, type BootstrapData, type Diagnostics, type ImportPreview, type ThemeInfo, type UserState } from '../shared/settings';
+import { buildHelpPreview } from '../shared/help';
 import { Customizations, type CustomizationDisplayIssue } from './Customizations';
 
 type Section = 'overview' | 'themes' | 'profile' | 'terminal' | 'settings';
@@ -154,6 +155,29 @@ function Themes({ themes, draft, onDraft, onImport, preview, previewBusy, favori
   );
 }
 
+function HelpPreview({ settings }: { settings: AppSettings }) {
+  const sections = useMemo(() => buildHelpPreview(settings), [settings]);
+  return (
+    <article className="panel help-preview-panel">
+      <div className="customization-heading"><div><h2>Ajuda do próximo terminal</h2><p>Gerada automaticamente a partir destas configurações. No PowerShell, use <code>help</code> ou <code>Show-TerminalHelp</code>.</p></div></div>
+      <div className="help-preview">
+        <span className="help-preview-heading"># Ambiente PowerShell</span>
+        {sections.map((group) => (
+          <div className="help-preview-section" key={group.section}>
+            <span className="help-preview-heading">## {group.section}</span>
+            {group.entries.map((entry) => (
+              <span className="help-preview-entry" key={`${group.section}-${entry.name}`}>
+                {'* '}<code>{entry.name}</code>{entry.target ? <>{' → '}<code>{entry.target}</code></> : null}{`: ${entry.description}`}
+                {entry.requires ? <em className="help-preview-requires"> (só aparece se {entry.requires} estiver instalado)</em> : null}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 function Profile({ draft, onDraft, nativeAliases, issues }: { draft: AppSettings; onDraft: (settings: AppSettings) => void; nativeAliases: BootstrapData['nativeAliases']; issues: CustomizationDisplayIssue[] }) {
   const updateCustomizations = (customizations: AppSettings['customizations']): void => {
     onDraft({ ...draft, customizations });
@@ -167,6 +191,7 @@ function Profile({ draft, onDraft, nativeAliases, issues }: { draft: AppSettings
       </div>
       <article className="panel form-panel"><h2>Aliases conhecidos</h2><div className="alias-grid">{Object.entries(draft.aliases).map(([name, enabled]) => <Toggle key={name} checked={enabled} onChange={(value) => onDraft({ ...draft, aliases: { ...draft.aliases, [name]: value } })} label={name} />)}</div></article>
       <Customizations customizations={draft.customizations} nativeAliases={nativeAliases} issues={issues} onChange={updateCustomizations} />
+      <HelpPreview settings={draft} />
       <article className="panel form-panel"><Toggle checked={draft.help.showOnFirstRun} onChange={(value) => onDraft(setNested(draft, 'help', 'showOnFirstRun', value))} label="Exibir ajuda na próxima abertura" description="Para repetir, desative e aplique; depois ative e aplique novamente." /></article>
     </section>
   );

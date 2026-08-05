@@ -55,6 +55,28 @@ function EditorField({ label, error, hint, children }: { label: string; error?: 
   return <label className={`field ${error ? 'field-invalid' : ''}`}><span>{label}</span>{children}{error ? <small role="alert">{error}</small> : hint ? <small>{hint}</small> : null}</label>;
 }
 
+type CustomizationKind = 'aliases' | 'functions' | 'commands';
+
+type CustomizationRow =
+  | { kind: 'aliases'; entry: AppSettings['customizations']['aliases'][number] }
+  | { kind: 'functions'; entry: AppSettings['customizations']['functions'][number] }
+  | { kind: 'commands'; entry: AppSettings['customizations']['commands'][number] };
+
+function rowTitle(row: CustomizationRow): string {
+  return row.kind === 'commands' ? row.entry.label : row.entry.name;
+}
+
+function rowSubtitle(row: CustomizationRow): string {
+  if (row.kind === 'commands') return 'Executado ao abrir o PowerShell';
+  return row.entry.description || 'Descrição obrigatória pendente';
+}
+
+function rowCode(row: CustomizationRow): string {
+  if (row.kind === 'aliases') return `${row.entry.name} → ${row.entry.command}`;
+  const source = row.kind === 'functions' ? row.entry.body : row.entry.code;
+  return source.split(/\r?\n/)[0];
+}
+
 export function Customizations({ customizations, nativeAliases, issues, onChange }: Props) {
   const [mode, setMode] = useState<CreatorMode>('shortcut');
   const [name, setName] = useState('');
@@ -64,6 +86,7 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
   const [creatorError, setCreatorError] = useState<string | null>(null);
   const [creatorBusy, setCreatorBusy] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const nativeByName = useMemo(
     () => new Map(nativeAliases.map((entry) => [entry.name.toLowerCase(), entry])),
@@ -76,12 +99,17 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
   ]), [customizations]);
 
   useEffect(() => {
+    if (!issues.length) return;
+    setExpandedIds((current) => new Set([...current, ...issues.map((issue) => issue.id)]));
+  }, [issues]);
+
+  useEffect(() => {
     const firstIssue = issues[0];
-    if (!firstIssue) return;
+    if (!firstIssue || !expandedIds.has(firstIssue.id)) return;
     const field = document.querySelector<HTMLElement>(`[data-issue-id="${firstIssue.id}"][data-issue-field="${firstIssue.field}"]`);
     field?.focus();
     field?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [issues]);
+  }, [issues, expandedIds]);
 
   const nameProblem = (candidate: string): string | null => {
     const trimmed = candidate.trim();
@@ -180,15 +208,78 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
     }
   };
 
-  const setEnabled = (kind: 'aliases' | 'functions' | 'commands', id: string, enabled: boolean): void => {
-    onChange({ ...customizations, [kind]: customizations[kind].map((entry) => entry.id === id ? { ...entry, enabled } : entry) });
+  const patchEntry = (kind: CustomizationKind, id: string, patch: Record<string, unknown>): void => {
+    onChange({
+      ...customizations,
+      [kind]: customizations[kind].map((entry) => entry.id === id ? { ...entry, ...patch } : entry),
+    } as AppSettings['customizations']);
   };
 
-  const remove = (kind: 'aliases' | 'functions' | 'commands', id: string): void => {
+  const setEnabled = (kind: CustomizationKind, id: string, enabled: boolean): void => {
+    patchEntry(kind, id, { enabled });
+  };
+
+  const remove = (kind: CustomizationKind, id: string): void => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
     onChange({ ...customizations, [kind]: customizations[kind].filter((entry) => entry.id !== id) });
   };
 
-  const total = customizations.aliases.length + customizations.functions.length + customizations.commands.length;
+  const toggleExpanded = (id: string): void => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const addEmpty = (kind: CustomizationKind): void => {
+    const id = customizationId(kind === 'aliases' ? 'alias' : kind === 'functions' ? 'function' : 'command');
+    const entry = kind === 'aliases'
+      ? { id, enabled: true, name: '', command: '', description: '' }
+      : kind === 'functions'
+        ? { id, enabled: true, name: '', body: '', description: '' }
+        : { id, enabled: true, label: '', code: '' };
+    onChange({ ...customizations, [kind]: [...customizations[kind], entry] } as AppSettings['customizations']);
+    setExpandedIds((current) => new Set([...current, id]));
+  };
+
+  const rows: CustomizationRow[] = [
+    ...customizations.aliases.map((entry) => ({ kind: 'aliases' as const, entry })),
+    ...customizations.functions.map((entry) => ({ kind: 'functions' as const, entry })),
+    ...customizations.commands.map((entry) => ({ kind: 'commands' as const, entry })),
+  ];
+  const total = rows.length;
+  const hasCode = customizations.functions.length + customizations.commands.length > 0;
+
+  const rowEditor = (row: CustomizationRow): React.ReactNode => {
+    const fieldError = (field: string): string | undefined =>
+      issueText(issues.find((issue) => issue.id === row.entry.id && issue.field === field));
+
+    if (row.kind === 'aliases') {
+      return <>
+        <EditorField label="Nome do alias" error={fieldError('name')}><input data-issue-id={row.entry.id} data-issue-field="name" required maxLength={128} value={row.entry.name} onChange={(event) => patchEntry('aliases', row.entry.id, { name: event.target.value })} /></EditorField>
+        <EditorField label="Comando de destino" error={fieldError('command')} hint="Ex.: Get-ChildItem"><input data-issue-id={row.entry.id} data-issue-field="command" required maxLength={256} placeholder="Get-ChildItem" value={row.entry.command} onChange={(event) => patchEntry('aliases', row.entry.id, { command: event.target.value })} /></EditorField>
+        <EditorField label="Descrição" error={fieldError('description')} hint="Exibida no help e no Show-TerminalHelp"><input data-issue-id={row.entry.id} data-issue-field="description" required maxLength={256} value={row.entry.description} onChange={(event) => patchEntry('aliases', row.entry.id, { description: event.target.value })} /></EditorField>
+      </>;
+    }
+
+    if (row.kind === 'functions') {
+      return <>
+        <EditorField label="Nome da função" error={fieldError('name')}><input data-issue-id={row.entry.id} data-issue-field="name" required maxLength={128} value={row.entry.name} onChange={(event) => patchEntry('functions', row.entry.id, { name: event.target.value })} /></EditorField>
+        <EditorField label="Descrição" error={fieldError('description')} hint="Exibida no help e no Show-TerminalHelp"><input data-issue-id={row.entry.id} data-issue-field="description" required maxLength={256} value={row.entry.description} onChange={(event) => patchEntry('functions', row.entry.id, { description: event.target.value })} /></EditorField>
+        <EditorField label="Corpo PowerShell" error={fieldError('body')} hint="Pode começar com param(...) e conter múltiplas linhas."><textarea data-issue-id={row.entry.id} data-issue-field="body" required maxLength={32_768} spellCheck={false} value={row.entry.body} onChange={(event) => patchEntry('functions', row.entry.id, { body: event.target.value })} /></EditorField>
+      </>;
+    }
+
+    return <>
+      <EditorField label="Identificação" error={fieldError('label')} hint="Exibida no help como automação de abertura"><input data-issue-id={row.entry.id} data-issue-field="label" required maxLength={128} value={row.entry.label} onChange={(event) => patchEntry('commands', row.entry.id, { label: event.target.value })} /></EditorField>
+      <EditorField label="Código PowerShell" error={fieldError('code')}><textarea data-issue-id={row.entry.id} data-issue-field="code" required maxLength={32_768} spellCheck={false} value={row.entry.code} onChange={(event) => patchEntry('commands', row.entry.id, { code: event.target.value })} /></EditorField>
+    </>;
+  };
 
   return <article className="panel customization-panel">
     <div className="customization-intro">
@@ -206,7 +297,7 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
       <EditorField label="O que deve ser executado" hint={mode === 'shortcut' ? 'Aceita um comando completo, como git commit.' : 'Código executado automaticamente em cada nova sessão.'}>
         <input value={action} maxLength={32_768} placeholder={mode === 'shortcut' ? 'git commit' : "$env:APP_ENV = 'local'"} onChange={(event) => { setAction(event.target.value); setCreatorError(null); }} />
       </EditorField>
-      {mode === 'shortcut' && <div className="guided-description"><EditorField label="Descrição" hint="Obrigatória. Será exibida no Show-TerminalHelp.">
+      {mode === 'shortcut' && <div className="guided-description"><EditorField label="Descrição" hint="Obrigatória. Entra automaticamente na ajuda exibida por help.">
         <input required value={description} maxLength={256} placeholder="Ex.: Cria um commit Git" onChange={(event) => { setDescription(event.target.value); setCreatorError(null); }} />
       </EditorField></div>}
       {mode === 'shortcut' && <label className="forward-arguments"><input type="checkbox" checked={forwardArguments} onChange={(event) => setForwardArguments(event.target.checked)} /><span><strong>Aceitar argumentos adicionais</strong><small>Permite usar, por exemplo, gcommit -m "mensagem".</small></span></label>}
@@ -217,55 +308,34 @@ export function Customizations({ customizations, nativeAliases, issues, onChange
 
     {showExamples && <div className="template-grid" aria-label="Modelos de personalização">{templates.map((template) => <article className="template-card" key={`${template.kind}-${template.title}`}><small>{template.category}</small><strong>{template.title}</strong><p>{template.description}</p><code>{template.usage}</code><button type="button" className="secondary" onClick={() => useTemplate(template)}>Usar modelo</button></article>)}</div>}
 
-    <div className="customization-heading"><div><h2>Suas personalizações</h2><p>{total ? `${total} item(ns) configurado(s).` : 'Nenhuma personalização criada.'}</p></div></div>
-    {total > 0 && <div className="customization-summary-list">
-      {customizations.aliases.map((entry) => <div className="customization-summary" key={entry.id}><label><input type="checkbox" checked={entry.enabled} onChange={(event) => setEnabled('aliases', entry.id, event.target.checked)} /><span><strong>{entry.name}</strong><small>{entry.description || 'Descrição obrigatória pendente'}</small></span></label><code>{entry.name} → {entry.command}</code><button className="danger compact" onClick={() => remove('aliases', entry.id)}>Excluir</button></div>)}
-      {customizations.functions.map((entry) => <div className="customization-summary" key={entry.id}><label><input type="checkbox" checked={entry.enabled} onChange={(event) => setEnabled('functions', entry.id, event.target.checked)} /><span><strong>{entry.name}</strong><small>{entry.description || 'Descrição obrigatória pendente'}</small></span></label><code>{entry.body.split(/\r?\n/)[0]}</code><button className="danger compact" onClick={() => remove('functions', entry.id)}>Excluir</button></div>)}
-      {customizations.commands.map((entry) => <div className="customization-summary" key={entry.id}><label><input type="checkbox" checked={entry.enabled} onChange={(event) => setEnabled('commands', entry.id, event.target.checked)} /><span><strong>{entry.label}</strong><small>Executado ao abrir o PowerShell</small></span></label><code>{entry.code.split(/\r?\n/)[0]}</code><button className="danger compact" onClick={() => remove('commands', entry.id)}>Excluir</button></div>)}
-    </div>}
-
-    <details className="advanced-customizations" open={issues.length > 0 || undefined}>
-      <summary>Modo avançado — editar PowerShell gerado</summary>
-      <div className="advanced-customizations-content">
-        <div className="risk-notice" role="note"><strong>Execução de código local</strong><p>O código abaixo executa com as permissões da sessão. A validação verifica sintaxe, mas não limita seus efeitos.</p></div>
-
-        <section className="technical-customization-section">
-          <div className="customization-heading"><div><h2>Aliases técnicos</h2><p>Use somente o nome de um comando, sem caminho, argumentos ou expressões.</p></div><button className="secondary" onClick={() => onChange({ ...customizations, aliases: [...customizations.aliases, { id: customizationId('alias'), enabled: true, name: '', command: '', description: '' }] })}>Adicionar alias</button></div>
-          <div className="customization-list">
-            {!customizations.aliases.length && <p className="empty-customization">Nenhum alias técnico configurado.</p>}
-            {customizations.aliases.map((entry) => <div className="customization-item alias-editor" key={entry.id}>
-              <input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar alias ${entry.name || 'novo'}`} onChange={(event) => setEnabled('aliases', entry.id, event.target.checked)} />
-              <EditorField label="Nome do alias" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'name'))}><input data-issue-id={entry.id} data-issue-field="name" required maxLength={128} value={entry.name} onChange={(event) => onChange({ ...customizations, aliases: customizations.aliases.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) })} /></EditorField>
-              <EditorField label="Comando de destino" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'command'))} hint="Ex.: Get-ChildItem"><input data-issue-id={entry.id} data-issue-field="command" required maxLength={256} placeholder="Get-ChildItem" value={entry.command} onChange={(event) => onChange({ ...customizations, aliases: customizations.aliases.map((item) => item.id === entry.id ? { ...item, command: event.target.value } : item) })} /></EditorField>
-              <EditorField label="Descrição" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'description'))} hint="Exibida no Show-TerminalHelp"><input data-issue-id={entry.id} data-issue-field="description" required maxLength={256} value={entry.description} onChange={(event) => onChange({ ...customizations, aliases: customizations.aliases.map((item) => item.id === entry.id ? { ...item, description: event.target.value } : item) })} /></EditorField>
-              <button className="danger compact" aria-label={`Excluir alias ${entry.name || 'novo'}`} onClick={() => remove('aliases', entry.id)}>Excluir</button>
-            </div>)}
-          </div>
-        </section>
-
-        <section className="technical-customization-section">
-          <div className="customization-heading"><div><h2>Funções técnicas</h2><p>Use para parâmetros, argumentos fixos ou lógica com múltiplas linhas.</p></div><button className="secondary" onClick={() => onChange({ ...customizations, functions: [...customizations.functions, { id: customizationId('function'), enabled: true, name: '', body: '', description: '' }] })}>Adicionar função</button></div>
-          <div className="customization-list">
-            {!customizations.functions.length && <p className="empty-customization">Nenhuma função técnica configurada.</p>}
-            {customizations.functions.map((entry) => <div className="customization-item code-editor" key={entry.id}>
-              <div className="customization-item-header"><input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar função ${entry.name || 'nova'}`} onChange={(event) => setEnabled('functions', entry.id, event.target.checked)} /><EditorField label="Nome da função" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'name'))}><input data-issue-id={entry.id} data-issue-field="name" required maxLength={128} value={entry.name} onChange={(event) => onChange({ ...customizations, functions: customizations.functions.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) })} /></EditorField><button className="danger compact" aria-label={`Excluir função ${entry.name || 'nova'}`} onClick={() => remove('functions', entry.id)}>Excluir</button></div>
-              <EditorField label="Descrição" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'description'))} hint="Exibida no Show-TerminalHelp"><input data-issue-id={entry.id} data-issue-field="description" required maxLength={256} value={entry.description} onChange={(event) => onChange({ ...customizations, functions: customizations.functions.map((item) => item.id === entry.id ? { ...item, description: event.target.value } : item) })} /></EditorField>
-              <EditorField label="Corpo PowerShell" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'body'))} hint="Pode começar com param(...) e conter múltiplas linhas."><textarea data-issue-id={entry.id} data-issue-field="body" required maxLength={32_768} spellCheck={false} value={entry.body} onChange={(event) => onChange({ ...customizations, functions: customizations.functions.map((item) => item.id === entry.id ? { ...item, body: event.target.value } : item) })} /></EditorField>
-            </div>)}
-          </div>
-        </section>
-
-        <section className="technical-customization-section">
-          <div className="customization-heading"><div><h2>Comandos técnicos na abertura</h2><p>Executados na ordem exibida quando o perfil é carregado.</p></div><button className="secondary" onClick={() => onChange({ ...customizations, commands: [...customizations.commands, { id: customizationId('command'), enabled: true, label: '', code: '' }] })}>Adicionar comando</button></div>
-          <div className="customization-list">
-            {!customizations.commands.length && <p className="empty-customization">Nenhum comando técnico configurado.</p>}
-            {customizations.commands.map((entry) => <div className="customization-item code-editor" key={entry.id}>
-              <div className="customization-item-header"><input className="enabled-box" type="checkbox" checked={entry.enabled} aria-label={`Ativar comando ${entry.label || 'novo'}`} onChange={(event) => setEnabled('commands', entry.id, event.target.checked)} /><EditorField label="Identificação" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'label'))}><input data-issue-id={entry.id} data-issue-field="label" required maxLength={128} value={entry.label} onChange={(event) => onChange({ ...customizations, commands: customizations.commands.map((item) => item.id === entry.id ? { ...item, label: event.target.value } : item) })} /></EditorField><button className="danger compact" aria-label={`Excluir comando ${entry.label || 'novo'}`} onClick={() => remove('commands', entry.id)}>Excluir</button></div>
-              <EditorField label="Código PowerShell" error={issueText(issues.find((issue) => issue.id === entry.id && issue.field === 'code'))}><textarea data-issue-id={entry.id} data-issue-field="code" required maxLength={32_768} spellCheck={false} value={entry.code} onChange={(event) => onChange({ ...customizations, commands: customizations.commands.map((item) => item.id === entry.id ? { ...item, code: event.target.value } : item) })} /></EditorField>
-            </div>)}
-          </div>
-        </section>
+    <div className="customization-heading">
+      <div><h2>Suas personalizações</h2><p>{total ? `${total} item(ns) configurado(s). Todas entram na ajuda do terminal.` : 'Nenhuma personalização criada.'}</p></div>
+      <div className="customization-add-actions">
+        <button type="button" className="secondary compact" onClick={() => addEmpty('aliases')}>+ alias</button>
+        <button type="button" className="secondary compact" onClick={() => addEmpty('functions')}>+ função</button>
+        <button type="button" className="secondary compact" onClick={() => addEmpty('commands')}>+ comando</button>
       </div>
-    </details>
+    </div>
+
+    {hasCode && <div className="risk-notice" role="note"><strong>Execução de código local</strong><p>Funções e comandos executam com as permissões da sessão. A validação verifica sintaxe, mas não limita seus efeitos.</p></div>}
+
+    <div className="customization-list">
+      {!total && <p className="empty-customization">Nenhuma personalização configurada. Use o criador acima ou os botões “+ alias”, “+ função” e “+ comando”.</p>}
+      {rows.map((row) => {
+        const id = row.entry.id;
+        const expanded = expandedIds.has(id);
+        const title = rowTitle(row) || 'Sem nome';
+        return <div className={`customization-row ${expanded ? 'expanded' : ''}`} key={id}>
+          <div className="customization-row-header">
+            <input className="enabled-box" type="checkbox" checked={row.entry.enabled} aria-label={`Ativar ${title}`} onChange={(event) => setEnabled(row.kind, id, event.target.checked)} />
+            <span className="customization-row-title"><strong>{title}</strong><small>{rowSubtitle(row)}</small></span>
+            <code>{rowCode(row)}</code>
+            <button type="button" className="secondary compact" aria-expanded={expanded} aria-controls={`customization-editor-${id}`} onClick={() => toggleExpanded(id)}>{expanded ? 'Fechar' : 'Editar'}</button>
+            <button type="button" className="danger compact" aria-label={`Excluir ${title}`} onClick={() => remove(row.kind, id)}>Excluir</button>
+          </div>
+          {expanded && <div className="customization-row-editor" id={`customization-editor-${id}`}>{rowEditor(row)}</div>}
+        </div>;
+      })}
+    </div>
   </article>;
 }

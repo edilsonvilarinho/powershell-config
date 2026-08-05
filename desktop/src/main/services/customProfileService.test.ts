@@ -11,7 +11,10 @@ describe('buildCustomProfile', () => {
           { id: 'function-disabled', enabled: false, name: 'Remove-All', body: 'throw disabled', description: 'Não deve aparecer' },
         ],
         aliases: [{ id: 'alias-work', enabled: true, name: 'work', command: 'Invoke-Workspace', description: 'Abre o workspace' }],
-        commands: [{ id: 'command-env', enabled: true, label: 'Define ambiente', code: "$env:APP_ENV = 'local'" }],
+        commands: [
+          { id: 'command-env', enabled: true, label: 'Define ambiente', code: "$env:APP_ENV = 'local'" },
+          { id: 'command-off', enabled: false, label: 'Comando desativado', code: 'throw disabled' },
+        ],
       },
     });
 
@@ -19,6 +22,8 @@ describe('buildCustomProfile', () => {
     expect(content).toContain("Set-Alias -Name 'work' -Value 'Invoke-Workspace' -Scope Global");
     expect(content).toContain("Kind = 'Alias'; Name = 'work'; Target = 'Invoke-Workspace'; Description = 'Abre o workspace'");
     expect(content).toContain("Kind = 'Function'; Name = 'Invoke-Workspace'; Target = $null; Description = 'Abre o workspace d''usuário'");
+    expect(content).toContain("Kind = 'Startup'; Name = 'Define ambiente'; Target = $null; Description = 'Define ambiente'");
+    expect(content).not.toContain('Comando desativado');
     expect(content).toContain("$env:APP_ENV = 'local'");
     expect(content).not.toContain('Remove-All');
     expect(content).not.toContain('Não deve aparecer');

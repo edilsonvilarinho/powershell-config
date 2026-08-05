@@ -20,12 +20,17 @@ export function buildCustomProfile(settings: Pick<AppSettings, 'customizations'>
 
   const functions = settings.customizations.functions.filter((entry) => entry.enabled);
   const aliases = settings.customizations.aliases.filter((entry) => entry.enabled);
+  const commands = settings.customizations.commands.filter((entry) => entry.enabled);
   sections.push('', '$global:PowerShellConfigCustomHelpEntries = @(');
   for (const entry of aliases) {
     sections.push(`    [pscustomobject]@{ Kind = 'Alias'; Name = ${powerShellSingleQuoted(entry.name)}; Target = ${powerShellSingleQuoted(entry.command)}; Description = ${powerShellSingleQuoted(entry.description)} }`);
   }
   for (const entry of functions) {
     sections.push(`    [pscustomobject]@{ Kind = 'Function'; Name = ${powerShellSingleQuoted(entry.name)}; Target = $null; Description = ${powerShellSingleQuoted(entry.description)} }`);
+  }
+  for (const entry of commands) {
+    const label = commentLabel(entry.label);
+    sections.push(`    [pscustomobject]@{ Kind = 'Startup'; Name = ${powerShellSingleQuoted(label)}; Target = $null; Description = ${powerShellSingleQuoted(label)} }`);
   }
   sections.push(')');
 
@@ -43,7 +48,6 @@ export function buildCustomProfile(settings: Pick<AppSettings, 'customizations'>
     }
   }
 
-  const commands = settings.customizations.commands.filter((entry) => entry.enabled);
   if (commands.length) {
     sections.push('', '# Comandos executados na abertura do perfil');
     for (const entry of commands) {
