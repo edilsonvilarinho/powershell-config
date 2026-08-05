@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { settingsSchema, type AppSettings, type BootstrapData, type Diagnostics, type ThemeInfo } from '../shared/settings';
+import { settingsSchema, type AppSettings, type BootstrapData, type Diagnostics, type ImportPreview, type ThemeInfo, type UserState } from '../shared/settings';
 import { Customizations, type CustomizationDisplayIssue } from './Customizations';
 
 type Section = 'overview' | 'themes' | 'profile' | 'terminal' | 'settings';
@@ -76,7 +76,7 @@ function DiagnosticCard({ title, value, ok }: { title: string; value: string; ok
   return <article className="metric-card"><span>{title}</span><strong>{value}</strong><Status ok={ok}>{ok ? 'Operacional' : 'Atenção'}</Status></article>;
 }
 
-function readFavoriteThemes(): Set<string> {
+function readLegacyFavoriteThemes(): Set<string> {
   try {
     const value: unknown = JSON.parse(localStorage.getItem('theme-favorites') ?? '[]');
     return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
@@ -118,25 +118,20 @@ function Overview({ data }: { data: BootstrapData }) {
   );
 }
 
-function Themes({ themes, draft, onDraft, onImport, preview, previewBusy }: {
+function Themes({ themes, draft, onDraft, onImport, preview, previewBusy, favorites, favoritesBusy, onToggleFavorite }: {
   themes: ThemeInfo[];
   draft: AppSettings;
   onDraft: (settings: AppSettings) => void;
   onImport: () => void;
   preview: string | null;
   previewBusy: boolean;
+  favorites: Set<string>;
+  favoritesBusy: boolean;
+  onToggleFavorite: (id: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'favorites' | 'imported'>('all');
-  const [favorites, setFavorites] = useState<Set<string>>(readFavoriteThemes);
   const visible = themes.filter((theme) => theme.name.toLowerCase().includes(query.toLowerCase()) && (filter === 'all' || (filter === 'favorites' ? favorites.has(theme.id) : theme.source === 'imported')));
-
-  const toggleFavorite = (id: string): void => {
-    const next = new Set(favorites);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    setFavorites(next);
-    localStorage.setItem('theme-favorites', JSON.stringify([...next]));
-  };
 
   return (
     <section>
@@ -145,7 +140,7 @@ function Themes({ themes, draft, onDraft, onImport, preview, previewBusy }: {
         <div className="theme-browser panel">
           <div className="toolbar"><input type="search" placeholder="Buscar tema..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="segmented"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>Todos</button><button className={filter === 'favorites' ? 'active' : ''} onClick={() => setFilter('favorites')}>Favoritos</button><button className={filter === 'imported' ? 'active' : ''} onClick={() => setFilter('imported')}>Importados</button></div></div>
           <div className="theme-list" role="listbox" aria-label="Temas Oh My Posh">
-            {visible.map((theme) => <div role="option" aria-selected={draft.prompt.themeId === theme.id} key={theme.id} className={`theme-item ${draft.prompt.themeId === theme.id ? 'selected' : ''}`}><button className="theme-select" onClick={() => onDraft(setNested(draft, 'prompt', 'themeId', theme.id))}><span><strong>{theme.name}</strong><small>{theme.source}</small></span></button><button className="favorite-button" aria-label={`Favoritar ${theme.name}`} onClick={() => toggleFavorite(theme.id)}>{favorites.has(theme.id) ? '★' : '☆'}</button></div>)}
+            {visible.map((theme) => <div role="option" aria-selected={draft.prompt.themeId === theme.id} key={theme.id} className={`theme-item ${draft.prompt.themeId === theme.id ? 'selected' : ''}`}><button className="theme-select" onClick={() => onDraft(setNested(draft, 'prompt', 'themeId', theme.id))}><span><strong>{theme.name}</strong><small>{theme.source}</small></span></button><button className="favorite-button" aria-label={`Favoritar ${theme.name}`} disabled={favoritesBusy} onClick={() => onToggleFavorite(theme.id)}>{favorites.has(theme.id) ? '★' : '☆'}</button></div>)}
             {!visible.length && <p className="empty">Nenhum tema encontrado.</p>}
           </div>
         </div>
@@ -185,10 +180,10 @@ function TerminalSettings({ draft, onDraft, schemes }: { draft: AppSettings; onD
   );
 }
 
-function SettingsPage({ draft, onDraft, diagnostics, backupLabel, onOpenTerminal, onOpenLogs, onRestore, onRestoreBackup }: { draft: AppSettings; onDraft: (settings: AppSettings) => void; diagnostics: Diagnostics; backupLabel: string; onOpenTerminal: () => void; onOpenLogs: () => void; onRestore: () => void; onRestoreBackup: () => void }) {
+function SettingsPage({ draft, onDraft, diagnostics, backupLabel, onOpenTerminal, onOpenLogs, onExport, onImport, onRestore, onRestoreBackup }: { draft: AppSettings; onDraft: (settings: AppSettings) => void; diagnostics: Diagnostics; backupLabel: string; onOpenTerminal: () => void; onOpenLogs: () => void; onExport: () => void; onImport: () => void; onRestore: () => void; onRestoreBackup: () => void }) {
   return (
     <section><header className="page-header"><div><p className="eyebrow">APLICATIVO</p><h1>Preferências e recuperação.</h1></div></header>
-      <div className="two-columns"><article className="panel form-panel"><h2>Aparência</h2><div className="theme-mode"><button className={draft.ui.theme === 'dark' ? 'active' : ''} onClick={() => onDraft(setNested(draft, 'ui', 'theme', 'dark'))}>Escuro OpenCode</button><button className={draft.ui.theme === 'light' ? 'active' : ''} onClick={() => onDraft(setNested(draft, 'ui', 'theme', 'light'))}>Claro OpenCode</button></div><Toggle checked={draft.startup.enabled} onChange={(value) => onDraft(setNested(draft, 'startup', 'enabled', value))} label="Iniciar com o Windows" description="Inicia oculto na bandeja." /></article><article className="panel form-panel"><h2>Ações</h2><div className="button-stack"><button className="secondary" onClick={onOpenTerminal}>Abrir Windows Terminal</button><button className="secondary" onClick={onOpenLogs}>Abrir pasta de logs</button><button className="secondary" onClick={onRestoreBackup} disabled={backupLabel === 'Nenhum backup'}>Restaurar último backup</button><small className="backup-label">{backupLabel}</small><button className="danger" onClick={onRestore}>Restaurar padrões do PowerShell Config</button></div></article></div>
+      <div className="two-columns"><article className="panel form-panel"><h2>Aparência</h2><div className="theme-mode"><button className={draft.ui.theme === 'dark' ? 'active' : ''} onClick={() => onDraft(setNested(draft, 'ui', 'theme', 'dark'))}>Escuro OpenCode</button><button className={draft.ui.theme === 'light' ? 'active' : ''} onClick={() => onDraft(setNested(draft, 'ui', 'theme', 'light'))}>Claro OpenCode</button></div><Toggle checked={draft.startup.enabled} onChange={(value) => onDraft(setNested(draft, 'startup', 'enabled', value))} label="Iniciar com o Windows" description="Inicia oculto na bandeja." /></article><article className="panel form-panel"><h2>Ações</h2><div className="button-stack"><button className="secondary" onClick={onOpenTerminal}>Abrir Windows Terminal</button><button className="secondary" onClick={onOpenLogs}>Abrir pasta de logs</button><button className="secondary" onClick={onExport}>Exportar configuração</button><button className="secondary" onClick={onImport}>Importar configuração</button><button className="secondary" onClick={onRestoreBackup} disabled={backupLabel === 'Nenhum backup'}>Restaurar último backup</button><small className="backup-label">{backupLabel}</small><button className="danger" onClick={onRestore}>Restaurar padrões do PowerShell Config</button></div></article></div>
       <article className="panel"><h2>Arquivos gerenciados</h2><dl className="paths"><dt>Windows Terminal</dt><dd>{diagnostics.terminalSettingsPath ?? 'Não localizado'}</dd><dt>Telemetria</dt><dd>Desativada. Nenhum dado sai desta máquina.</dd></dl></article>
     </section>
   );
@@ -202,12 +197,29 @@ export function App() {
   const [previewBusy, setPreviewBusy] = useState(false);
   const [review, setReview] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [favoritesBusy, setFavoritesBusy] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [customizationIssues, setCustomizationIssues] = useState<CustomizationDisplayIssue[]>([]);
 
   const load = async (): Promise<boolean> => {
     try {
-      const bootstrap = await window.powershellConfig.getBootstrap();
+      let bootstrap = await window.powershellConfig.getBootstrap();
+      const availableThemes = new Set(bootstrap.themes.map((theme) => theme.id));
+      const legacyFavorites = [...readLegacyFavoriteThemes()].filter((id) => availableThemes.has(id));
+      if (legacyFavorites.length) {
+        const migratedUserState: UserState = {
+          schemaVersion: 1,
+          favoriteThemeIds: [...new Set([...bootstrap.userState.favoriteThemeIds, ...legacyFavorites])],
+        };
+        try {
+          const saved = await window.powershellConfig.saveUserState(migratedUserState, bootstrap.revision);
+          bootstrap = { ...bootstrap, userState: saved.userState, revision: saved.revision };
+          localStorage.removeItem('theme-favorites');
+        } catch (error) {
+          setMessage({ type: 'error', text: `Não foi possível migrar os temas favoritos: ${userErrorMessage(error)}` });
+        }
+      }
       setData(bootstrap);
       setDraft(cloneSettings(bootstrap.settings));
       document.documentElement.dataset.theme = bootstrap.settings.ui.theme;
@@ -227,6 +239,11 @@ export function App() {
   };
 
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage((current) => current === message ? null : current), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
   useEffect(() => {
     if (!draft) return;
     document.documentElement.dataset.theme = draft.ui.theme;
@@ -331,6 +348,74 @@ export function App() {
     } catch (error) { setMessage({ type: 'error', text: userErrorMessage(error) }); }
   };
 
+  const toggleFavorite = async (id: string): Promise<void> => {
+    if (favoritesBusy) return;
+    const previous = data.userState;
+    const favorites = new Set(previous.favoriteThemeIds);
+    if (favorites.has(id)) favorites.delete(id); else favorites.add(id);
+    const next: UserState = { schemaVersion: 1, favoriteThemeIds: [...favorites] };
+    setFavoritesBusy(true);
+    setData({ ...data, userState: next });
+    try {
+      const saved = await window.powershellConfig.saveUserState(next, data.revision);
+      setData((current) => current ? { ...current, userState: saved.userState, revision: saved.revision } : current);
+    } catch (error) {
+      setData((current) => current ? { ...current, userState: previous } : current);
+      setMessage({ type: 'error', text: userErrorMessage(error) });
+    } finally {
+      setFavoritesBusy(false);
+    }
+  };
+
+  const exportConfiguration = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const result = await window.powershellConfig.exportConfiguration();
+      if (!result.canceled) setMessage({ type: 'success', text: `Configuração exportada com ${result.themeCount ?? 0} tema(s).` });
+    } catch (error) {
+      setMessage({ type: 'error', text: userErrorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inspectConfigurationImport = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const previewResult = await window.powershellConfig.inspectConfigurationImport();
+      if (previewResult) setImportPreview(previewResult);
+    } catch (error) {
+      setMessage({ type: 'error', text: userErrorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelConfigurationImport = async (): Promise<void> => {
+    const token = importPreview?.token;
+    setImportPreview(null);
+    if (token) await runAction(() => window.powershellConfig.cancelConfigurationImport(token));
+  };
+
+  const applyConfigurationImport = async (): Promise<void> => {
+    if (!importPreview) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await window.powershellConfig.applyConfigurationImport({ token: importPreview.token, expectedRevision: data.revision });
+      const refreshed = await window.powershellConfig.getBootstrap();
+      setData({ ...refreshed, settings: result.settings, userState: result.userState, revision: result.revision });
+      setDraft(cloneSettings(result.settings));
+      setImportPreview(null);
+      setMessage({ type: 'success', text: `Configuração importada com backup e ${result.importedThemeCount} tema(s).` });
+    } catch (error) {
+      setImportPreview(null);
+      setMessage({ type: 'error', text: userErrorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const restore = async (): Promise<void> => {
     if (!window.confirm('Restaurar todas as opções gerenciadas para os padrões? Um backup será criado.')) return;
     setBusy(true);
@@ -359,14 +444,15 @@ export function App() {
       <aside><div className="brand"><div className="brand-mark">PS</div><div><strong>PowerShell</strong><span>Config</span></div></div><nav>{navItems.map((item) => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}><i>{item.glyph}</i>{item.label}</button>)}</nav><footer><span>v{data.appVersion}</span><small>Windows • local</small></footer></aside>
       <main className="content">
         {section === 'overview' && <Overview data={{ ...data, settings: draft }} />}
-        {section === 'themes' && <Themes themes={data.themes} draft={draft} onDraft={setDraft} onImport={() => void importTheme()} preview={preview} previewBusy={previewBusy} />}
+        {section === 'themes' && <Themes themes={data.themes} draft={draft} onDraft={setDraft} onImport={() => void importTheme()} preview={preview} previewBusy={previewBusy} favorites={new Set(data.userState.favoriteThemeIds)} favoritesBusy={favoritesBusy} onToggleFavorite={(id) => void toggleFavorite(id)} />}
         {section === 'profile' && <Profile draft={draft} onDraft={setDraft} nativeAliases={data.nativeAliases} issues={customizationIssues} />}
         {section === 'terminal' && <TerminalSettings draft={draft} onDraft={setDraft} schemes={data.colorSchemes} />}
-        {section === 'settings' && <SettingsPage draft={draft} onDraft={setDraft} diagnostics={data.diagnostics} backupLabel={data.backups[0] ? `Último: ${new Date(data.backups[0].createdAt).toLocaleString('pt-BR')}` : 'Nenhum backup'} onOpenTerminal={() => void runAction(() => window.powershellConfig.openTerminal())} onOpenLogs={() => void runAction(() => window.powershellConfig.openLogs())} onRestore={() => void restore()} onRestoreBackup={() => void restoreBackup()} />}
+        {section === 'settings' && <SettingsPage draft={draft} onDraft={setDraft} diagnostics={data.diagnostics} backupLabel={data.backups[0] ? `Último: ${new Date(data.backups[0].createdAt).toLocaleString('pt-BR')}` : 'Nenhum backup'} onOpenTerminal={() => void runAction(() => window.powershellConfig.openTerminal())} onOpenLogs={() => void runAction(() => window.powershellConfig.openLogs())} onExport={() => void exportConfiguration()} onImport={() => void inspectConfigurationImport()} onRestore={() => void restore()} onRestoreBackup={() => void restoreBackup()} />}
       </main>
       <div className="apply-bar"><span>{dirty ? `${changes.length} alteração(ões) pendente(s)` : 'Configuração sincronizada'}</span><button className="ghost" disabled={!dirty || busy} onClick={() => setDraft(cloneSettings(data.settings))}>Descartar</button><button className="primary" disabled={!dirty || busy} onClick={() => void reviewDraft()}>Revisar e aplicar</button></div>
-      {message && <div className={`toast ${message.type}`} role="status"><span>{message.text}</span><button onClick={() => setMessage(null)}>×</button></div>}
+      {message && <div className={`toast ${message.type}`} role="status"><span>{message.text}</span><button aria-label="Fechar mensagem" onClick={() => setMessage(null)}>×</button></div>}
       {review && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="review-title"><div className="modal"><p className="eyebrow">TRANSAÇÃO SEGURA</p><h2 id="review-title">Revisar alterações</h2><p>Um backup será criado antes da validação e gravação atômica.</p><ul className="change-list">{changes.map((change) => <li key={change}>{change}</li>)}</ul><div className="modal-actions"><button className="secondary" onClick={() => setReview(false)} disabled={busy}>Cancelar</button><button className="primary" onClick={() => void apply()} disabled={busy}>{busy ? 'Validando...' : 'Aplicar com backup'}</button></div></div></div>}
+      {importPreview && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="import-title"><div className="modal"><p className="eyebrow">IMPORTAÇÃO VALIDADA</p><h2 id="import-title">Revisar configuração importada</h2><p>Origem: PowerShell Config {importPreview.sourceAppVersion}, exportado em {new Date(importPreview.exportedAt).toLocaleString('pt-BR')}.</p><ul className="change-list"><li>{importPreview.aliasCount} alias(es)</li><li>{importPreview.functionCount} função(ões)</li><li>{importPreview.commandCount} comando(s)</li><li>{importPreview.favoriteCount} favorito(s)</li><li>{importPreview.themeCount} tema(s) portátil(eis)</li></ul><p>As configurações e os favoritos atuais serão substituídos. Os temas locais existentes serão preservados.</p><div className="modal-actions"><button className="secondary" onClick={() => void cancelConfigurationImport()} disabled={busy}>Cancelar</button><button className="primary" onClick={() => void applyConfigurationImport()} disabled={busy}>{busy ? 'Aplicando...' : 'Importar com backup'}</button></div></div></div>}
     </div>
   );
 }

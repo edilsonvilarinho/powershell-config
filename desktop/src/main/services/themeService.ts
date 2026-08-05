@@ -6,6 +6,7 @@ import type { ThemeInfo } from '../../shared/settings.js';
 import type { AppPaths } from './paths.js';
 import { ensureDirectory, hashFile, readUtf8, sha256, writeAtomic } from './fileService.js';
 import { execFileSafe, resolveWindowsExecutable } from './processService.js';
+import type { PortableTheme } from './portabilityService.js';
 
 interface ThemeRecord extends ThemeInfo {
   filePath: string;
@@ -70,6 +71,62 @@ export class ThemeService {
     const content = fs.readFileSync(record.filePath);
     JSON.parse(content.toString('utf8'));
     return content;
+  }
+
+  portableThemes(requiredThemeIds: string[]): PortableTheme[] {
+    this.list();
+    const required = new Set(requiredThemeIds);
+    const records = [...this.catalog.values()].filter((record) =>
+      record.source === 'imported' || (required.has(record.id) && record.source !== 'builtin'));
+    return records.map((record) => {
+      const content = fs.readFileSync(record.filePath, 'utf8');
+      return {
+        originalId: record.id,
+        name: record.name,
+        content,
+        sha256: sha256(content),
+      };
+    });
+  }
+
+  async validatePortableTheme(theme: PortableTheme): Promise<void> {
+    const digest = sha256(theme.content);
+    const configPath = path.join(this.paths.previewCacheDirectory, `.portable-${digest}.omp.json`);
+    const outputPath = path.join(this.paths.previewCacheDirectory, `.portable-${digest}.png`);
+    ensureDirectory(this.paths.previewCacheDirectory);
+    writeAtomic(configPath, theme.content);
+    try {
+      await execFileSafe(this.ohMyPoshExecutable(), ['config', 'export', 'image', '--config', configPath, '--output', outputPath], 30_000);
+    } finally {
+      fs.rmSync(configPath, { force: true });
+      fs.rmSync(outputPath, { force: true });
+    }
+  }
+
+  installPortableThemes(themes: PortableTheme[]): { createdPaths: string[]; idByOriginalId: Map<string, string> } {
+    ensureDirectory(this.paths.importedThemesDirectory);
+    const createdPaths: string[] = [];
+    const idByOriginalId = new Map<string, string>();
+    try {
+      for (const theme of themes) {
+        const digest = theme.sha256.slice(0, 12);
+        const name = theme.name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 80) || 'tema-importado';
+        const destination = path.join(this.paths.importedThemesDirectory, `${name}-${digest}.omp.json`);
+        if (!fs.existsSync(destination)) {
+          writeAtomic(destination, theme.content);
+          createdPaths.push(destination);
+        } else if (sha256(fs.readFileSync(destination)) !== theme.sha256) {
+          throw new Error(`O tema existente "${theme.name}" não corresponde ao pacote importado.`);
+        }
+        idByOriginalId.set(theme.originalId, `imported:${digest}`);
+      }
+      this.list();
+      return { createdPaths, idByOriginalId };
+    } catch (error) {
+      for (const createdPath of createdPaths) fs.rmSync(createdPath, { force: true });
+      this.list();
+      throw error;
+    }
   }
 
   ensureActiveTheme(): void {

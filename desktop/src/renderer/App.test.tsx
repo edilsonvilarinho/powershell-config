@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { defaultSettings, type BootstrapData, type DesktopApi } from '../shared/settings';
 
 const bootstrap: BootstrapData = {
   settings: defaultSettings,
+  userState: { schemaVersion: 1, favoriteThemeIds: [] },
   revision: 'revision-1',
   themes: [{ id: 'builtin:takuya', name: 'takuya', source: 'builtin' }],
   colorSchemes: ['One Half Dark (modded)'],
@@ -28,6 +29,8 @@ const bootstrap: BootstrapData = {
 afterEach(() => {
   cleanup();
   delete document.documentElement.dataset.theme;
+  localStorage.clear();
+  vi.useRealTimers();
 });
 
 describe('App', () => {
@@ -36,6 +39,11 @@ describe('App', () => {
       getBootstrap: vi.fn().mockResolvedValue(bootstrap),
       previewTheme: vi.fn().mockResolvedValue('data:image/png;base64,AA=='),
       importTheme: vi.fn(),
+      saveUserState: vi.fn().mockResolvedValue({ userState: bootstrap.userState, revision: bootstrap.revision }),
+      exportConfiguration: vi.fn().mockResolvedValue({ canceled: true }),
+      inspectConfigurationImport: vi.fn().mockResolvedValue(null),
+      applyConfigurationImport: vi.fn(),
+      cancelConfigurationImport: vi.fn().mockResolvedValue(undefined),
       validateCustomizations: vi.fn().mockResolvedValue({ issues: [] }),
       applySettings: vi.fn(),
       restoreDefaults: vi.fn(),
@@ -189,5 +197,133 @@ describe('App', () => {
     fireEvent.click(screen.getByText(/Modo avançado/));
     expect(screen.getByLabelText('Nome da função')).toHaveValue('Show-Json');
     expect((screen.getByLabelText(/^Corpo PowerShell/) as HTMLTextAreaElement).value).toContain('ConvertFrom-Json');
+  });
+
+  it('remove mensagens de sucesso e erro automaticamente depois de cinco segundos', async () => {
+    const api = installApi({
+      exportConfiguration: vi.fn().mockResolvedValue({ canceled: false, themeCount: 2 }),
+      openLogs: vi.fn().mockRejectedValue(new Error('Falha ao abrir logs.')),
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Configurações$/ }));
+
+    vi.useFakeTimers();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Exportar configuração' }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/Configuração exportada com 2 tema/)).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(4_999));
+    expect(screen.getByText(/Configuração exportada com 2 tema/)).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByText(/Configuração exportada com 2 tema/)).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Abrir pasta de logs' }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Falha ao abrir logs.')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(screen.queryByText('Falha ao abrir logs.')).not.toBeInTheDocument();
+    expect(api.openLogs).toHaveBeenCalledOnce();
+  });
+
+  it('reinicia o temporizador quando uma mensagem substitui a anterior', async () => {
+    installApi({
+      exportConfiguration: vi.fn().mockResolvedValue({ canceled: false, themeCount: 1 }),
+      openLogs: vi.fn().mockRejectedValue(new Error('Nova mensagem.')),
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Configurações$/ }));
+
+    vi.useFakeTimers();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Exportar configuração' }));
+      await Promise.resolve();
+    });
+    act(() => vi.advanceTimersByTime(3_000));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Abrir pasta de logs' }));
+      await Promise.resolve();
+    });
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(screen.getByText('Nova mensagem.')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(screen.queryByText('Nova mensagem.')).not.toBeInTheDocument();
+  });
+
+  it('migra favoritos legados do localStorage para o estado persistente', async () => {
+    localStorage.setItem('theme-favorites', JSON.stringify(['builtin:takuya', 'tema-inexistente']));
+    const saveUserState = vi.fn().mockResolvedValue({
+      userState: { schemaVersion: 1, favoriteThemeIds: ['builtin:takuya'] },
+      revision: 'revision-favorites',
+    });
+    installApi({ saveUserState });
+    render(<App />);
+
+    expect(await screen.findByText('Seu PowerShell, sob controle.')).toBeInTheDocument();
+    expect(saveUserState).toHaveBeenCalledWith({ schemaVersion: 1, favoriteThemeIds: ['builtin:takuya'] }, 'revision-1');
+    expect(localStorage.getItem('theme-favorites')).toBeNull();
+  });
+
+  it('revisa e confirma a importação antes de substituir o estado', async () => {
+    const preview = {
+      token: 'import-token',
+      sourceAppVersion: '2.9.0',
+      exportedAt: '2026-08-05T12:00:00.000Z',
+      aliasCount: 4,
+      functionCount: 2,
+      commandCount: 1,
+      favoriteCount: 3,
+      themeCount: 2,
+    };
+    const importedSettings = { ...defaultSettings, ui: { theme: 'light' as const } };
+    const applyConfigurationImport = vi.fn().mockResolvedValue({
+      settings: importedSettings,
+      userState: { schemaVersion: 1, favoriteThemeIds: ['builtin:takuya'] },
+      revision: 'revision-imported',
+      appliedAt: '2026-08-05T12:01:00.000Z',
+      importedThemeCount: 2,
+    });
+    installApi({
+      inspectConfigurationImport: vi.fn().mockResolvedValue(preview),
+      applyConfigurationImport,
+      getBootstrap: vi.fn()
+        .mockResolvedValueOnce(bootstrap)
+        .mockResolvedValueOnce({ ...bootstrap, settings: importedSettings, revision: 'revision-imported' }),
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Configurações$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Importar configuração' }));
+
+    expect(await screen.findByRole('heading', { name: 'Revisar configuração importada' })).toBeInTheDocument();
+    expect(screen.getByText('2 tema(s) portátil(eis)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Importar com backup' }));
+
+    await waitFor(() => expect(applyConfigurationImport).toHaveBeenCalledWith({ token: 'import-token', expectedRevision: 'revision-1' }));
+    expect(await screen.findByText(/Configuração importada com backup e 2 tema/)).toBeInTheDocument();
+    expect(document.documentElement.dataset.theme).toBe('light');
+  });
+
+  it('cancela a importação revisada sem aplicar alterações', async () => {
+    const cancelConfigurationImport = vi.fn().mockResolvedValue(undefined);
+    const applyConfigurationImport = vi.fn();
+    installApi({
+      inspectConfigurationImport: vi.fn().mockResolvedValue({
+        token: 'cancel-token', sourceAppVersion: '3.0.4', exportedAt: '2026-08-05T12:00:00.000Z',
+        aliasCount: 0, functionCount: 0, commandCount: 0, favoriteCount: 0, themeCount: 0,
+      }),
+      cancelConfigurationImport,
+      applyConfigurationImport,
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Configurações$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Importar configuração' }));
+    expect(await screen.findByRole('heading', { name: 'Revisar configuração importada' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(cancelConfigurationImport).toHaveBeenCalledWith('cancel-token'));
+    expect(applyConfigurationImport).not.toHaveBeenCalled();
+    expect(screen.queryByRole('heading', { name: 'Revisar configuração importada' })).not.toBeInTheDocument();
   });
 });

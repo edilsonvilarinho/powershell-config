@@ -34,6 +34,18 @@ function Assert-Equal {
     $script:Passed++
 }
 
+function Get-DirectoryFingerprint {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $root = (Resolve-Path -LiteralPath $Path).Path
+    $entries = Get-ChildItem -LiteralPath $root -File -Recurse | Sort-Object FullName | ForEach-Object {
+        $relative = $_.FullName.Substring($root.Length).TrimStart('\')
+        "$relative=$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)"
+    }
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes(($entries -join "`n"))
+    return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes))
+}
+
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('powershell-config-tests-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 
@@ -251,7 +263,40 @@ try {
     Assert-True -Condition ($nsiContent.Contains('-LogPath "$InstallLogPath" -LatestLogPath "$LatestInstallLogPath" -SessionId "$InstallSessionId"')) -Message 'NSIS deve propagar a sessao de log ao PowerShell'
     Assert-True -Condition ($nsiContent.Contains('logs\install-$InstallSessionId.log')) -Message 'NSIS deve criar um log separado por execucao'
     Assert-True -Condition ($nsiContent.Contains('Function WriteInstallLog')) -Message 'NSIS deve registrar suas proprias etapas no log operacional'
-    Assert-True -Condition ($nsiContent.Contains('--sync-startup')) -Message 'instalador deve sincronizar a inicializacao preservando a preferencia em upgrades'
+    Assert-True -Condition ($nsiContent.Contains('--sync-startup')) -Message 'instalacao nova deve sincronizar a preferencia de inicializacao'
+    Assert-True -Condition ($nsiContent.Contains('Var IsUpgrade')) -Message 'NSIS deve manter modo explicito para instalacao nova e upgrade'
+    Assert-True -Condition ($nsiContent.Contains('IfFileExists "$INSTDIR\app\*.*" existingInstallDetected checkExistingConfig')) -Message 'upgrade deve ser detectado por payload anterior inclusive parcial'
+    Assert-True -Condition ($nsiContent.Contains('IfFileExists "$INSTDIR\config\*.*" existingInstallDetected checkExistingState')) -Message 'upgrade deve ser detectado por configuracao existente'
+    Assert-True -Condition ($nsiContent.Contains('IfFileExists "$INSTDIR\state\install-state.json" existingInstallDetected installModeDetected')) -Message 'upgrade deve ser detectado por estado do instalador'
+    Assert-True -Condition ($nsiContent.Contains('SKIP upgrade; config state backups perfil terminal fontes modulos e startup preservados')) -Message 'upgrade deve registrar explicitamente a preservacao do ambiente'
+    Assert-True -Condition ($nsiContent.Contains('SetOutPath "$INSTDIR\app.update"')) -Message 'novo aplicativo deve ser extraido em staging separado'
+    Assert-True -Condition ($nsiContent.Contains('Rename "$INSTDIR\app" "$INSTDIR\app.previous"')) -Message 'aplicativo anterior deve ser preservado antes do swap'
+    Assert-True -Condition ($nsiContent.Contains('Rename "$INSTDIR\app.previous" "$INSTDIR\app"')) -Message 'falha no swap deve restaurar o aplicativo anterior'
+    foreach ($protectedDirectory in @('config', 'state', 'backups')) {
+        Assert-True -Condition (-not $nsiContent.Contains('RMDir /r "$INSTDIR\' + $protectedDirectory + '"')) -Message "upgrade nao pode remover o diretorio protegido $protectedDirectory"
+    }
+
+    $upgradeFixture = Join-Path $tempRoot 'upgrade-fixture'
+    foreach ($directory in @('app', 'app.update', 'config', 'state', 'backups')) {
+        New-Item -ItemType Directory -Path (Join-Path $upgradeFixture $directory) -Force | Out-Null
+    }
+    Write-Utf8NoBomFile -Path (Join-Path $upgradeFixture 'app\PowerShell Config.exe') -Content 'app-anterior'
+    Write-Utf8NoBomFile -Path (Join-Path $upgradeFixture 'app.update\PowerShell Config.exe') -Content 'app-novo'
+    Write-Utf8NoBomFile -Path (Join-Path $upgradeFixture 'config\settings.json') -Content '{"usuario":"preservado"}'
+    Write-Utf8NoBomFile -Path (Join-Path $upgradeFixture 'state\install-state.json') -Content '{"estado":"preservado"}'
+    Write-Utf8NoBomFile -Path (Join-Path $upgradeFixture 'backups\backup.txt') -Content 'backup-preservado'
+    $protectedBefore = @{}
+    foreach ($directory in @('config', 'state', 'backups')) {
+        $protectedBefore[$directory] = Get-DirectoryFingerprint -Path (Join-Path $upgradeFixture $directory)
+    }
+    $resolvedUpgradeFixture = (Resolve-Path -LiteralPath $upgradeFixture).Path
+    Assert-True -Condition ($resolvedUpgradeFixture.StartsWith((Resolve-Path -LiteralPath $tempRoot).Path, [StringComparison]::OrdinalIgnoreCase)) -Message 'fixture de upgrade deve permanecer dentro do diretorio temporario'
+    Move-Item -LiteralPath (Join-Path $upgradeFixture 'app') -Destination (Join-Path $upgradeFixture 'app.previous')
+    Move-Item -LiteralPath (Join-Path $upgradeFixture 'app.update') -Destination (Join-Path $upgradeFixture 'app')
+    foreach ($directory in @('config', 'state', 'backups')) {
+        Assert-Equal -Expected $protectedBefore[$directory] -Actual (Get-DirectoryFingerprint -Path (Join-Path $upgradeFixture $directory)) -Message "swap de upgrade deve preservar hash de $directory"
+    }
+    Assert-Equal -Expected 'app-novo' -Actual (Get-Content -LiteralPath (Join-Path $upgradeFixture 'app\PowerShell Config.exe') -Raw).Trim() -Message 'swap de upgrade deve ativar apenas o novo aplicativo'
     Assert-True -Condition ($nsiContent.Contains('RequestExecutionLevel user')) -Message 'instalador deve executar por usuario'
     Assert-True -Condition (([regex]::Matches($nsiContent, '(?im)^\s*nsExec::ExecToLog.*(?:powershell|pwsh)\.exe')).Count -eq 4) -Message 'scripts PowerShell de instalacao e desinstalacao devem executar sem abrir console'
     Assert-True -Condition (-not ($nsiContent -match '(?im)^\s*ExecWait.*(?:powershell|pwsh)\.exe')) -Message 'NSIS nao pode usar ExecWait diretamente para scripts PowerShell'

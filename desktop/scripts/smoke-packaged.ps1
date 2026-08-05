@@ -39,6 +39,14 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $smokeRoot 'config\themes\active.omp.json'))) {
         throw 'Tema ativo nao foi inicializado.'
     }
+    $userStatePath = Join-Path $smokeRoot 'config\user-state.json'
+    if (-not (Test-Path -LiteralPath $userStatePath)) {
+        throw 'Estado persistente do usuario nao foi inicializado.'
+    }
+    $userState = Get-Content -LiteralPath $userStatePath -Raw | ConvertFrom-Json
+    if ($userState.schemaVersion -ne 1 -or @($userState.favoriteThemeIds | Where-Object { $null -ne $_ }).Count -ne 0) {
+        throw 'Estado persistente do usuario foi inicializado fora do contrato.'
+    }
     if (-not (Test-Path -LiteralPath $smokeResultPath)) {
         throw 'Renderer nao produziu resultado do smoke test.'
     }

@@ -239,6 +239,7 @@ export interface Diagnostics {
 
 export interface BootstrapData {
   settings: AppSettings;
+  userState: UserState;
   revision: string;
   themes: ThemeInfo[];
   colorSchemes: string[];
@@ -288,10 +289,60 @@ export interface ApplyResult {
   appliedAt: string;
 }
 
+export const userStateSchema = z.object({
+  schemaVersion: z.literal(1),
+  favoriteThemeIds: z.array(z.string().min(1).max(128)).max(200)
+    .transform((items) => [...new Set(items)]),
+}).strict();
+
+export type UserState = z.infer<typeof userStateSchema>;
+
+export const defaultUserState: UserState = {
+  schemaVersion: 1,
+  favoriteThemeIds: [],
+};
+
+export interface UserStateResult {
+  userState: UserState;
+  revision: string;
+}
+
+export interface ExportResult {
+  canceled: boolean;
+  filePath?: string;
+  themeCount?: number;
+}
+
+export interface ImportPreview {
+  token: string;
+  sourceAppVersion: string;
+  exportedAt: string;
+  aliasCount: number;
+  functionCount: number;
+  commandCount: number;
+  favoriteCount: number;
+  themeCount: number;
+}
+
+export interface ImportRequest {
+  token: string;
+  expectedRevision: string;
+}
+
+export interface ImportResult extends ApplyResult {
+  userState: UserState;
+  importedThemeCount: number;
+}
+
 export interface DesktopApi {
   getBootstrap(): Promise<BootstrapData>;
   previewTheme(themeId: string): Promise<string>;
   importTheme(): Promise<ThemeInfo | null>;
+  saveUserState(userState: UserState, expectedRevision: string): Promise<UserStateResult>;
+  exportConfiguration(): Promise<ExportResult>;
+  inspectConfigurationImport(): Promise<ImportPreview | null>;
+  applyConfigurationImport(request: ImportRequest): Promise<ImportResult>;
+  cancelConfigurationImport(token: string): Promise<void>;
   validateCustomizations(items: CustomizationCodeInput[]): Promise<CustomizationValidationResult>;
   applySettings(request: ApplyRequest): Promise<ApplyResult>;
   restoreDefaults(expectedRevision: string): Promise<ApplyResult>;

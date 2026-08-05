@@ -1,6 +1,6 @@
 import { app, ipcMain } from 'electron';
 import { ipcChannels } from '../shared/ipc.js';
-import type { ApplyRequest } from '../shared/settings.js';
+import type { ApplyRequest, ImportRequest, UserState } from '../shared/settings.js';
 import { ApplicationService } from './services/applicationService.js';
 
 export function registerIpcHandlers(service: ApplicationService): void {
@@ -10,6 +10,17 @@ export function registerIpcHandlers(service: ApplicationService): void {
     return service.themeService.preview(themeId);
   });
   ipcMain.handle(ipcChannels.importTheme, () => service.themeService.importWithDialog());
+  ipcMain.handle(ipcChannels.saveUserState, (_event, userState: UserState, expectedRevision: unknown) => {
+    if (typeof expectedRevision !== 'string') throw new Error('Revisão inválida.');
+    return service.saveUserState(userState, expectedRevision);
+  });
+  ipcMain.handle(ipcChannels.exportConfiguration, () => service.exportConfiguration());
+  ipcMain.handle(ipcChannels.inspectConfigurationImport, () => service.inspectConfigurationImport());
+  ipcMain.handle(ipcChannels.applyConfigurationImport, (_event, request: ImportRequest) => service.applyConfigurationImport(request));
+  ipcMain.handle(ipcChannels.cancelConfigurationImport, (_event, token: unknown) => {
+    if (typeof token !== 'string' || token.length > 128) throw new Error('Token de importação inválido.');
+    service.cancelConfigurationImport(token);
+  });
   ipcMain.handle(ipcChannels.validateCustomizations, (_event, items: unknown) => {
     if (!Array.isArray(items) || items.length > 200) throw new Error('Lista de customizações inválida.');
     const valid = items.every((item) => {

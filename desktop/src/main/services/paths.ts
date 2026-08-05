@@ -6,6 +6,7 @@ export interface AppPaths {
   installRoot: string;
   configDirectory: string;
   settingsPath: string;
+  userStatePath: string;
   activeThemePath: string;
   importedThemesDirectory: string;
   previewCacheDirectory: string;
@@ -64,6 +65,7 @@ export function createAppPaths(): AppPaths {
     installRoot,
     configDirectory,
     settingsPath: path.join(configDirectory, 'settings.json'),
+    userStatePath: path.join(configDirectory, 'user-state.json'),
     activeThemePath: path.join(configDirectory, 'themes', 'active.omp.json'),
     importedThemesDirectory: path.join(configDirectory, 'themes', 'imported'),
     previewCacheDirectory: path.join(configDirectory, 'cache', 'previews'),

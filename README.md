@@ -14,6 +14,7 @@ Instalador e aplicativo desktop para configurar um ambiente PowerShell moderno n
 - Inclui automaticamente aliases e funções personalizados no `Show-TerminalHelp` usando a descrição obrigatória informada no cadastro.
 - Ajusta esquema de cores, fonte, tamanho, opacidade, acrílico e elevação do Windows Terminal.
 - Aplica alterações com validação, backup, controle de conflito e restauração.
+- Exporta e importa configurações, personalizações, favoritos e temas em um pacote portátil validado.
 - Funciona localmente, sem telemetria e sem carregar páginas remotas no aplicativo.
 
 ## Requisitos e instalação
@@ -76,6 +77,10 @@ Se o Windows Terminal estiver em execução, o instalador interrompe o preflight
 
 O aplicativo permanece disponível na bandeja e inicia oculto com o Windows quando essa opção está habilitada. Fechar a janela apenas a oculta; a opção **Sair** encerra o processo.
 
+Na tela **Configurações**, use **Exportar configuração** para criar um arquivo `PowerShellConfig-AAAA-MM-DD.powershellconfig.json`. O pacote contém as opções gerenciadas, aliases, funções, comandos, favoritos e os temas necessários para reproduzir o estado em outra máquina. Logs, caches, backups históricos e o estado técnico do instalador não são exportados.
+
+Ao importar, o aplicativo valida integralmente o pacote e apresenta um resumo antes da confirmação. A aplicação cria um backup, substitui configurações e favoritos, mescla os temas portáteis sem apagar temas locais e executa rollback se qualquer gravação falhar.
+
 <p align="center">
   <img src="./img_/img/bandeja.png" alt="Ícone do PowerShell Config na bandeja do Windows" width="124">
 </p>
@@ -88,6 +93,7 @@ O aplicativo permanece disponível na bandeja e inicia oculto com o Windows quan
 - Alterações externas detectadas durante uma edição bloqueiam a gravação até o recarregamento.
 - A restauração reverte somente propriedades gerenciadas, e a desinstalação remove apenas o estado controlado pelo PowerShell Config.
 - PowerShell, Windows Terminal, Git, Neovim, Oh My Posh e módulos instalados não são removidos nem rebaixados.
+- Quando uma instalação existente é detectada, o instalador atualiza somente o aplicativo e seus arquivos internos. Configurações, estado, backups, perfil, Windows Terminal, fontes, módulos e preferência de inicialização permanecem inalterados.
 
 > [!WARNING]
 > Funções e comandos personalizados são código PowerShell fornecido pelo usuário e executado com as permissões da sessão. A validação de sintaxe não funciona como sandbox nem garante o comportamento desse código.

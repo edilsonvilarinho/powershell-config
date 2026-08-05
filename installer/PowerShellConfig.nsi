@@ -25,6 +25,7 @@ Var InstallLogPath
 Var LatestInstallLogPath
 Var InstallSessionId
 Var InstallPhaseStart
+Var IsUpgrade
 
 !macro WriteInstallLog LEVEL STAGE MESSAGE
     Push "[${LEVEL}] [${STAGE}] ${MESSAGE}"
@@ -83,22 +84,58 @@ desktopStopped:
     File /oname=terminal-fragment.json "terminal-fragment.json"
     !insertmacro WriteInstallLog "INFO" "nsis.payload.config" "SUCCESS"
 
-    SetOutPath "$INSTDIR\app"
+    RMDir /r "$INSTDIR\app.update"
+    SetOutPath "$INSTDIR\app.update"
     System::Call 'kernel32::GetTickCount() i .r8'
     StrCpy $InstallPhaseStart $8
-    !insertmacro WriteInstallLog "INFO" "nsis.payload.app" "START target=$INSTDIR\app"
+    !insertmacro WriteInstallLog "INFO" "nsis.payload.app" "START staging=$INSTDIR\app.update"
     File /r "${DESKTOP_PAYLOAD_DIR}\*.*"
+    IfFileExists "$INSTDIR\app.update\PowerShell Config.exe" appPayloadReady appPayloadInvalid
+appPayloadInvalid:
+    !insertmacro WriteInstallLog "ERROR" "nsis.payload.app" "FAILURE executavel ausente no staging"
+    RMDir /r "$INSTDIR\app.update"
+    MessageBox MB_OK|MB_ICONSTOP "A atualizacao do aplicativo esta incompleta. A versao anterior e as configuracoes foram preservadas."
+    Abort
+appPayloadReady:
+    RMDir /r "$INSTDIR\app.previous"
+    IfFileExists "$INSTDIR\app\*.*" appSwapExisting appSwapNew
+appSwapExisting:
+    Rename "$INSTDIR\app" "$INSTDIR\app.previous"
+    IfErrors appSwapBackupFailed appSwapInstall
+appSwapBackupFailed:
+    !insertmacro WriteInstallLog "ERROR" "nsis.payload.app" "FAILURE nao foi possivel preservar app anterior"
+    RMDir /r "$INSTDIR\app.update"
+    MessageBox MB_OK|MB_ICONSTOP "Nao foi possivel preparar a atualizacao. A versao anterior e as configuracoes foram preservadas."
+    Abort
+appSwapNew:
+    RMDir "$INSTDIR\app"
+appSwapInstall:
+    Rename "$INSTDIR\app.update" "$INSTDIR\app"
+    IfErrors appSwapInstallFailed appSwapComplete
+appSwapInstallFailed:
+    IfFileExists "$INSTDIR\app.previous\*.*" 0 appSwapRollbackComplete
+    Rename "$INSTDIR\app.previous" "$INSTDIR\app"
+appSwapRollbackComplete:
+    !insertmacro WriteInstallLog "ERROR" "nsis.payload.app" "FAILURE swap falhou; rollback executado"
+    MessageBox MB_OK|MB_ICONSTOP "A atualizacao do aplicativo falhou. A versao anterior e as configuracoes foram preservadas."
+    Abort
+appSwapComplete:
+    RMDir /r "$INSTDIR\app.previous"
     System::Call 'kernel32::GetTickCount() i .r8'
     IntOp $8 $8 - $InstallPhaseStart
     !insertmacro WriteInstallLog "INFO" "nsis.payload.app" "SUCCESS durationMs=$8"
 
-    SetOutPath "$INSTDIR\fonts"
-    !insertmacro WriteInstallLog "INFO" "nsis.payload.fonts" "START target=$INSTDIR\fonts count=4"
-    File "..\powershell\fonts\Hack Regular Nerd Font Complete Windows Compatible.ttf"
-    File "..\powershell\fonts\Hack Bold Nerd Font Complete Windows Compatible.ttf"
-    File "..\powershell\fonts\Hack Italic Nerd Font Complete Windows Compatible.ttf"
-    File "..\powershell\fonts\Hack Bold Italic Nerd Font Complete Windows Compatible.ttf"
-    !insertmacro WriteInstallLog "INFO" "nsis.payload.fonts" "SUCCESS"
+    ${If} $IsUpgrade == 0
+        SetOutPath "$INSTDIR\fonts"
+        !insertmacro WriteInstallLog "INFO" "nsis.payload.fonts" "START target=$INSTDIR\fonts count=4"
+        File "..\powershell\fonts\Hack Regular Nerd Font Complete Windows Compatible.ttf"
+        File "..\powershell\fonts\Hack Bold Nerd Font Complete Windows Compatible.ttf"
+        File "..\powershell\fonts\Hack Italic Nerd Font Complete Windows Compatible.ttf"
+        File "..\powershell\fonts\Hack Bold Italic Nerd Font Complete Windows Compatible.ttf"
+        !insertmacro WriteInstallLog "INFO" "nsis.payload.fonts" "SUCCESS"
+    ${Else}
+        !insertmacro WriteInstallLog "INFO" "nsis.payload.fonts" "SKIP upgrade; fontes existentes preservadas"
+    ${EndIf}
 
     SetOutPath "$INSTDIR\scripts"
     !insertmacro WriteInstallLog "INFO" "nsis.payload.scripts" "START target=$INSTDIR\scripts"
@@ -109,34 +146,39 @@ desktopStopped:
     File "scripts\Uninstall-PowerShellConfig.ps1"
     !insertmacro WriteInstallLog "INFO" "nsis.payload.scripts" "SUCCESS"
 
-    SetOutPath "$INSTDIR"
-    DetailPrint "Configurando dependencias e perfil do usuario..."
-    System::Call 'kernel32::GetTickCount() i .r8'
-    StrCpy $InstallPhaseStart $8
-    !insertmacro WriteInstallLog "INFO" "nsis.configure" "START"
-    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Install-PowerShellConfig.ps1" -InstallRoot "$INSTDIR" -ProductVersion "${PRODUCT_VERSION}" -LogPath "$InstallLogPath" -LatestLogPath "$LatestInstallLogPath" -SessionId "$InstallSessionId"'
-    Pop $0
-    System::Call 'kernel32::GetTickCount() i .r8'
-    IntOp $8 $8 - $InstallPhaseStart
-    !insertmacro WriteInstallLog "INFO" "nsis.configure" "END exitCode=$0 durationMs=$8"
-    ${If} $0 != 0
-        !insertmacro WriteInstallLog "ERROR" "nsis.install" "FAILURE configurationExitCode=$0"
-        MessageBox MB_OK|MB_ICONSTOP "A instalacao falhou. Log desta execucao: $InstallLogPath. Log mais recente: $LatestInstallLogPath. Os arquivos e backups foram preservados em $INSTDIR para diagnostico e recuperacao."
-        Abort
-    ${EndIf}
+    ${If} $IsUpgrade == 0
+        SetOutPath "$INSTDIR"
+        DetailPrint "Configurando dependencias e perfil do usuario..."
+        System::Call 'kernel32::GetTickCount() i .r8'
+        StrCpy $InstallPhaseStart $8
+        !insertmacro WriteInstallLog "INFO" "nsis.configure" "START"
+        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\scripts\Install-PowerShellConfig.ps1" -InstallRoot "$INSTDIR" -ProductVersion "${PRODUCT_VERSION}" -LogPath "$InstallLogPath" -LatestLogPath "$LatestInstallLogPath" -SessionId "$InstallSessionId"'
+        Pop $0
+        System::Call 'kernel32::GetTickCount() i .r8'
+        IntOp $8 $8 - $InstallPhaseStart
+        !insertmacro WriteInstallLog "INFO" "nsis.configure" "END exitCode=$0 durationMs=$8"
+        ${If} $0 != 0
+            !insertmacro WriteInstallLog "ERROR" "nsis.install" "FAILURE configurationExitCode=$0"
+            MessageBox MB_OK|MB_ICONSTOP "A instalacao falhou. Log desta execucao: $InstallLogPath. Log mais recente: $LatestInstallLogPath. Os arquivos e backups foram preservados em $INSTDIR para diagnostico e recuperacao."
+            Abort
+        ${EndIf}
 
-    DetailPrint "Registrando o PowerShell Config para iniciar com o Windows..."
-    System::Call 'kernel32::GetTickCount() i .r8'
-    StrCpy $InstallPhaseStart $8
-    !insertmacro WriteInstallLog "INFO" "nsis.startup" "START"
-    ExecWait '"$INSTDIR\app\PowerShell Config.exe" --sync-startup' $1
-    System::Call 'kernel32::GetTickCount() i .r8'
-    IntOp $8 $8 - $InstallPhaseStart
-    !insertmacro WriteInstallLog "INFO" "nsis.startup" "END exitCode=$1 durationMs=$8"
-    ${If} $1 != 0
-        !insertmacro WriteInstallLog "ERROR" "nsis.install" "FAILURE startupExitCode=$1"
-        MessageBox MB_OK|MB_ICONSTOP "A configuracao foi instalada, mas o aplicativo nao conseguiu registrar a inicializacao com o Windows. Codigo: $1"
-        Abort
+        DetailPrint "Registrando o PowerShell Config para iniciar com o Windows..."
+        System::Call 'kernel32::GetTickCount() i .r8'
+        StrCpy $InstallPhaseStart $8
+        !insertmacro WriteInstallLog "INFO" "nsis.startup" "START"
+        ExecWait '"$INSTDIR\app\PowerShell Config.exe" --sync-startup' $1
+        System::Call 'kernel32::GetTickCount() i .r8'
+        IntOp $8 $8 - $InstallPhaseStart
+        !insertmacro WriteInstallLog "INFO" "nsis.startup" "END exitCode=$1 durationMs=$8"
+        ${If} $1 != 0
+            !insertmacro WriteInstallLog "ERROR" "nsis.install" "FAILURE startupExitCode=$1"
+            MessageBox MB_OK|MB_ICONSTOP "A configuracao foi instalada, mas o aplicativo nao conseguiu registrar a inicializacao com o Windows. Codigo: $1"
+            Abort
+        ${EndIf}
+    ${Else}
+        DetailPrint "Instalacao existente detectada: somente o aplicativo foi atualizado."
+        !insertmacro WriteInstallLog "INFO" "nsis.configure" "SKIP upgrade; config state backups perfil terminal fontes modulos e startup preservados"
     ${EndIf}
 
     !insertmacro WriteInstallLog "INFO" "nsis.registration" "START"
@@ -234,6 +276,15 @@ FunctionEnd
 
 Function .onInit
     SetShellVarContext current
+    StrCpy $IsUpgrade 0
+    IfFileExists "$INSTDIR\app\*.*" existingInstallDetected checkExistingConfig
+checkExistingConfig:
+    IfFileExists "$INSTDIR\config\*.*" existingInstallDetected checkExistingState
+checkExistingState:
+    IfFileExists "$INSTDIR\state\install-state.json" existingInstallDetected installModeDetected
+existingInstallDetected:
+    StrCpy $IsUpgrade 1
+installModeDetected:
     CreateDirectory "$LOCALAPPDATA\PowerShellConfig"
     CreateDirectory "$LOCALAPPDATA\PowerShellConfig\logs"
     ${GetTime} "" "L" $0 $1 $2 $3 $4 $5 $6
@@ -246,8 +297,13 @@ Function .onInit
     FileOpen $8 "$LatestInstallLogPath" w
     FileClose $8
     !insertmacro WriteInstallLog "INFO" "nsis.install" "START productVersion=${PRODUCT_VERSION} architecture=${TARGET_ARCH} installRoot=$INSTDIR logPath=$InstallLogPath"
+    !insertmacro WriteInstallLog "INFO" "nsis.installMode" "isUpgrade=$IsUpgrade"
     !insertmacro MUI_LANGDLL_DISPLAY
-    Call EnsureWindowsTerminalClosed
+    ${If} $IsUpgrade == 0
+        Call EnsureWindowsTerminalClosed
+    ${Else}
+        !insertmacro WriteInstallLog "INFO" "nsis.preflight.windowsTerminal" "SKIP upgrade; configuracao externa nao sera alterada"
+    ${EndIf}
 FunctionEnd
 
 Function WriteInstallLog

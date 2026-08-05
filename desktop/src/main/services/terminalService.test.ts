@@ -17,6 +17,7 @@ function createPaths(content: string): AppPaths {
     installRoot: root,
     configDirectory: path.join(root, 'config'),
     settingsPath: path.join(root, 'config', 'settings.json'),
+    userStatePath: path.join(root, 'config', 'user-state.json'),
     activeThemePath: path.join(root, 'active.json'),
     importedThemesDirectory: path.join(root, 'imported'),
     previewCacheDirectory: path.join(root, 'cache'),
