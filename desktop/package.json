@@ -1,6 +1,6 @@
 {
   "name": "powershell-config-desktop",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "private": true,
   "description": "Interface desktop segura para o PowerShell Config",
   "author": "Edilson Vilarinho",
