@@ -14,4 +14,5 @@ export const ipcChannels = {
   openTerminal: 'powershell-config:open-terminal',
   openLogs: 'powershell-config:open-logs',
   quit: 'powershell-config:quit',
+  notifyUnsavedCustomizations: 'powershell-config:notify-unsaved-customizations',
 } as const;

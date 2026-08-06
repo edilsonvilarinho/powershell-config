@@ -51,6 +51,7 @@ describe('App', () => {
       openTerminal: vi.fn(),
       openLogs: vi.fn(),
       quit: vi.fn(),
+      notifyUnsavedCustomizations: vi.fn(),
       ...overrides,
     };
     Object.defineProperty(window, 'powershellConfig', { value: api, configurable: true });
@@ -164,6 +165,50 @@ describe('App', () => {
     const helpPreview = document.querySelector('.help-preview') as HTMLElement;
     expect(within(helpPreview).getByText('gcommit')).toBeInTheDocument();
     expect(helpPreview.textContent).toContain('Cria um commit Git');
+  });
+
+  it('avisa na tela e notifica o processo principal quando há personalização não aplicada', async () => {
+    const api = installApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
+
+    expect(screen.queryByText(/ainda não foram salvos/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^Nome que você quer digitar/), { target: { value: 'gcommit' } });
+    fireEvent.change(screen.getByLabelText(/^O que deve ser executado/), { target: { value: 'git commit' } });
+    fireEvent.change(screen.getByLabelText(/^Descrição/), { target: { value: 'Cria um commit Git' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar personalização' }));
+    await waitFor(() => expect(api.validateCustomizations).toHaveBeenCalled());
+
+    expect(await screen.findByText(/ainda não foram salvos/)).toBeInTheDocument();
+    await waitFor(() => expect(api.notifyUnsavedCustomizations).toHaveBeenLastCalledWith(true));
+  });
+
+  it('some o aviso e notifica que não há mais pendência depois de aplicar a personalização', async () => {
+    const newSettings = {
+      ...defaultSettings,
+      customizations: {
+        ...defaultSettings.customizations,
+        functions: [{ id: 'gcommit', enabled: true, name: 'gcommit', body: 'git commit @args', description: 'Cria um commit Git' }],
+      },
+    };
+    const applySettings = vi.fn().mockResolvedValue({ settings: newSettings, revision: 'revision-2' });
+    const api = installApi({ applySettings });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
+
+    fireEvent.change(screen.getByLabelText(/^Nome que você quer digitar/), { target: { value: 'gcommit' } });
+    fireEvent.change(screen.getByLabelText(/^O que deve ser executado/), { target: { value: 'git commit' } });
+    fireEvent.change(screen.getByLabelText(/^Descrição/), { target: { value: 'Cria um commit Git' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar personalização' }));
+    await waitFor(() => expect(api.validateCustomizations).toHaveBeenCalled());
+    expect(await screen.findByText(/ainda não foram salvos/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar e aplicar' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Aplicar com backup' }));
+
+    await waitFor(() => expect(screen.queryByText(/ainda não foram salvos/)).not.toBeInTheDocument());
+    await waitFor(() => expect(api.notifyUnsavedCustomizations).toHaveBeenLastCalledWith(false));
   });
 
   it('bloqueia a criação de atalho sem descrição', async () => {

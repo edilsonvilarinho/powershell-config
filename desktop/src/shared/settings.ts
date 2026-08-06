@@ -350,4 +350,5 @@ export interface DesktopApi {
   openTerminal(): Promise<void>;
   openLogs(): Promise<void>;
   quit(): void;
+  notifyUnsavedCustomizations(hasPending: boolean): void;
 }

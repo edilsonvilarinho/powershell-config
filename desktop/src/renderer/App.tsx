@@ -289,6 +289,10 @@ export function App() {
 
   const dirty = Boolean(data && draft && JSON.stringify(data.settings) !== JSON.stringify(draft));
   const changes = useMemo(() => data && draft ? changesBetween(data.settings, draft) : [], [data, draft]);
+  const hasUnsavedCustomizations = changes.some((change) => change.startsWith('customizations.'));
+  useEffect(() => {
+    window.powershellConfig.notifyUnsavedCustomizations(hasUnsavedCustomizations);
+  }, [hasUnsavedCustomizations]);
 
   if (!data || !draft) return <main className="boot"><div className="boot-mark">&gt;_</div><p>{message?.text ?? 'Carregando PowerShell Config...'}</p></main>;
 
@@ -479,6 +483,7 @@ export function App() {
       <main className="content">
         {section === 'overview' && <Overview data={{ ...data, settings: draft }} />}
         {section === 'themes' && <Themes themes={data.themes} draft={draft} onDraft={setDraft} onImport={() => void importTheme()} preview={preview} previewBusy={previewBusy} favorites={new Set(data.userState.favoriteThemeIds)} favoritesBusy={favoritesBusy} onToggleFavorite={(id) => void toggleFavorite(id)} />}
+        {section === 'profile' && hasUnsavedCustomizations && <p className="unsaved-customizations-banner" role="alert">Você adicionou funções, aliases ou comandos que ainda não foram salvos. Eles existem só nesta tela — clique em <strong>Revisar e aplicar</strong>, no rodapé, para gravá-los de verdade. Se o app fechar antes disso, essas alterações serão perdidas.</p>}
         {section === 'profile' && <Profile draft={draft} onDraft={setDraft} nativeAliases={data.nativeAliases} issues={customizationIssues} />}
         {section === 'terminal' && <TerminalSettings draft={draft} onDraft={setDraft} schemes={data.colorSchemes} />}
         {section === 'settings' && <SettingsPage draft={draft} onDraft={setDraft} diagnostics={data.diagnostics} backupLabel={data.backups[0] ? `Último: ${new Date(data.backups[0].createdAt).toLocaleString('pt-BR')}` : 'Nenhum backup'} onOpenTerminal={() => void runAction(() => window.powershellConfig.openTerminal())} onOpenLogs={() => void runAction(() => window.powershellConfig.openLogs())} onExport={() => void exportConfiguration()} onImport={() => void inspectConfigurationImport()} onRestore={() => void restore()} onRestoreBackup={() => void restoreBackup()} />}

@@ -17,6 +17,7 @@ const channels = {
   openTerminal: 'powershell-config:open-terminal',
   openLogs: 'powershell-config:open-logs',
   quit: 'powershell-config:quit',
+  notifyUnsavedCustomizations: 'powershell-config:notify-unsaved-customizations',
 } as const;
 
 const api: DesktopApi = {
@@ -35,6 +36,7 @@ const api: DesktopApi = {
   openTerminal: () => ipcRenderer.invoke(channels.openTerminal),
   openLogs: () => ipcRenderer.invoke(channels.openLogs),
   quit: () => ipcRenderer.send(channels.quit),
+  notifyUnsavedCustomizations: (hasPending: boolean) => ipcRenderer.send(channels.notifyUnsavedCustomizations, hasPending),
 };
 
 contextBridge.exposeInMainWorld('powershellConfig', api);

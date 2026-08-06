@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron';
 import { ipcChannels } from '../shared/ipc.js';
 import type { ApplyRequest, ImportRequest, UserState } from '../shared/settings.js';
 import { ApplicationService } from './services/applicationService.js';
+import { setHasUnsavedCustomizations } from './unsavedChangesTracker.js';
 
 export function registerIpcHandlers(service: ApplicationService): void {
   ipcMain.handle(ipcChannels.bootstrap, () => service.bootstrap());
@@ -48,4 +49,7 @@ export function registerIpcHandlers(service: ApplicationService): void {
   ipcMain.handle(ipcChannels.openTerminal, () => service.openTerminal());
   ipcMain.handle(ipcChannels.openLogs, () => service.openLogs());
   ipcMain.on(ipcChannels.quit, () => app.quit());
+  ipcMain.on(ipcChannels.notifyUnsavedCustomizations, (_event, hasPending: unknown) => {
+    setHasUnsavedCustomizations(Boolean(hasPending));
+  });
 }

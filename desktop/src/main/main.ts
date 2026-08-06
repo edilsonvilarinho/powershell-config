@@ -6,6 +6,7 @@ import { setLaunchAtStartup } from './services/startupService.js';
 import { registerIpcHandlers } from './ipc.js';
 import { createMainWindow } from './window.js';
 import { createTray } from './tray.js';
+import { confirmQuitWithUnsavedChanges, getHasUnsavedCustomizations } from './unsavedChangesTracker.js';
 
 type LaunchCommand = 'show' | 'shutdown' | 'enable-startup' | 'disable-startup' | 'sync-startup';
 
@@ -20,6 +21,7 @@ function parseCommand(args: string[]): LaunchCommand {
 const command = parseCommand(process.argv);
 const gotLock = app.requestSingleInstanceLock({ command });
 let quitting = command === 'shutdown';
+let quitConfirmationInFlight = false;
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
@@ -104,10 +106,22 @@ if (!gotLock) {
     app.exit(1);
   });
 
-  app.on('before-quit', () => {
-    quitting = true;
-    tray?.destroy();
-    tray = null;
+  app.on('before-quit', (event) => {
+    if (quitting || quitConfirmationInFlight || !getHasUnsavedCustomizations()) {
+      quitting = true;
+      tray?.destroy();
+      tray = null;
+      return;
+    }
+    event.preventDefault();
+    quitConfirmationInFlight = true;
+    void confirmQuitWithUnsavedChanges(mainWindow).then((confirmed) => {
+      quitConfirmationInFlight = false;
+      if (confirmed) {
+        quitting = true;
+        app.quit();
+      }
+    });
   });
 
   app.on('window-all-closed', () => {
