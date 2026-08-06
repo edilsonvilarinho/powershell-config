@@ -16,7 +16,9 @@ function Write-Utf8NoBomFile {
     if (-not [string]::IsNullOrWhiteSpace($parent)) {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
-    [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
+    $temporaryPath = "$Path.tmp-$([guid]::NewGuid().ToString('N'))"
+    [System.IO.File]::WriteAllText($temporaryPath, $Content, [System.Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
 }
 
 function Get-FileSha256 {
@@ -514,5 +516,6 @@ namespace PowerShellConfig {
 '@
     }
     $result = [IntPtr]::Zero
-    [PowerShellConfig.NativeMethods]::SendMessageTimeout([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, $null, 2, 1000, [ref]$result) | Out-Null
+    $sent = [PowerShellConfig.NativeMethods]::SendMessageTimeout([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, $null, 2, 1000, [ref]$result)
+    return [bool]($sent -ne [IntPtr]::Zero)
 }

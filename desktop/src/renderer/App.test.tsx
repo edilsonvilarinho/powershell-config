@@ -351,4 +351,49 @@ describe('App', () => {
     expect(applyConfigurationImport).not.toHaveBeenCalled();
     expect(screen.queryByRole('heading', { name: 'Revisar configuração importada' })).not.toBeInTheDocument();
   });
+
+  it('avisa que é preciso abrir um novo terminal quando uma personalização é aplicada', async () => {
+    const newSettings = {
+      ...defaultSettings,
+      customizations: {
+        ...defaultSettings.customizations,
+        functions: [{ id: 'gcommit', enabled: true, name: 'gcommit', body: 'git commit @args', description: 'Cria um commit Git' }],
+      },
+    };
+    const applySettings = vi.fn().mockResolvedValue({ settings: newSettings, revision: 'revision-2' });
+    const api = installApi({ applySettings });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Perfil PowerShell$/ }));
+
+    fireEvent.change(screen.getByLabelText(/^Nome que você quer digitar/), { target: { value: 'gcommit' } });
+    fireEvent.change(screen.getByLabelText(/^O que deve ser executado/), { target: { value: 'git commit' } });
+    fireEvent.change(screen.getByLabelText(/^Descrição/), { target: { value: 'Cria um commit Git' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar personalização' }));
+    await waitFor(() => expect(api.validateCustomizations).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar e aplicar' }));
+    expect(await screen.findByText(/será preciso abrir um novo terminal/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar com backup' }));
+
+    expect(await screen.findByText(/Abra um novo terminal \(PowerShell ou Windows Terminal\)/)).toBeInTheDocument();
+    expect(applySettings).toHaveBeenCalledOnce();
+  });
+
+  it('não avisa sobre novo terminal quando a alteração aplicada é só de tema', async () => {
+    const newSettings = { ...defaultSettings, ui: { theme: 'light' as const } };
+    const applySettings = vi.fn().mockResolvedValue({ settings: newSettings, revision: 'revision-2' });
+    installApi({ applySettings });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Configurações$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Claro OpenCode' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar e aplicar' }));
+    await screen.findByRole('button', { name: 'Aplicar com backup' });
+    expect(screen.queryByText(/será preciso abrir um novo terminal/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar com backup' }));
+
+    expect(await screen.findByText('Configurações validadas e aplicadas com backup.')).toBeInTheDocument();
+    expect(screen.queryByText(/Abra um novo terminal/)).not.toBeInTheDocument();
+    expect(applySettings).toHaveBeenCalledOnce();
+  });
 });

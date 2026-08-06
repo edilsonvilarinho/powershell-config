@@ -113,11 +113,12 @@ export class TerminalService {
     parseJsonc(content);
   }
 
-  updateInstallerState(terminalContent: string, settings: AppSettings): string | null {
+  updateInstallerState(terminalContent: string, settings: AppSettings, themeContent?: Buffer): string | null {
     if (!fs.existsSync(this.paths.statePath)) return null;
     const raw = fs.readFileSync(this.paths.statePath, 'utf8');
     const state = JSON.parse(raw) as {
       Terminal?: Record<string, unknown> & { PostInstallHash?: string; ManagedValues?: unknown };
+      ManagedConfig?: Record<string, unknown> & { ThemeInstalledHash?: string };
     };
     if (!state.Terminal) return null;
     state.Terminal.PostInstallHash = sha256(Buffer.from(terminalContent, 'utf8')).toUpperCase();
@@ -130,6 +131,9 @@ export class TerminalService {
       suppressApplicationTitle: true,
       useAcrylic: settings.terminal.useAcrylic,
     };
+    if (themeContent && state.ManagedConfig) {
+      state.ManagedConfig.ThemeInstalledHash = sha256(themeContent).toUpperCase();
+    }
     return `${JSON.stringify(state, null, 2)}\n`;
   }
 }

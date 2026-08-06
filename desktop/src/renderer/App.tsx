@@ -223,7 +223,7 @@ export function App() {
   const [review, setReview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [favoritesBusy, setFavoritesBusy] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string; sticky?: boolean } | null>(null);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [customizationIssues, setCustomizationIssues] = useState<CustomizationDisplayIssue[]>([]);
 
@@ -265,7 +265,7 @@ export function App() {
 
   useEffect(() => { void load(); }, []);
   useEffect(() => {
-    if (!message) return;
+    if (!message || message.sticky) return;
     const timer = window.setTimeout(() => setMessage((current) => current === message ? null : current), 5_000);
     return () => window.clearTimeout(timer);
   }, [message]);
@@ -337,6 +337,7 @@ export function App() {
   };
 
   const apply = async (): Promise<void> => {
+    const customizationsChanged = changes.some((change) => change.startsWith('customizations.'));
     setBusy(true);
     setMessage(null);
     try {
@@ -345,7 +346,15 @@ export function App() {
       setData({ ...refreshed, settings: result.settings, revision: result.revision });
       setDraft(cloneSettings(result.settings));
       setReview(false);
-      setMessage({ type: 'success', text: 'Configurações validadas e aplicadas com backup.' });
+      setMessage(
+        customizationsChanged
+          ? {
+              type: 'success',
+              text: 'Configurações validadas e aplicadas com backup. Abra um novo terminal (PowerShell ou Windows Terminal) para que funções, aliases e comandos personalizados entrem em vigor — o $PROFILE só é lido ao iniciar uma sessão.',
+              sticky: true,
+            }
+          : { type: 'success', text: 'Configurações validadas e aplicadas com backup.' },
+      );
     } catch (error) {
       setReview(false);
       const errorText = userErrorMessage(error);
@@ -476,7 +485,7 @@ export function App() {
       </main>
       <div className="apply-bar"><span>{dirty ? `${changes.length} alteração(ões) pendente(s)` : 'Configuração sincronizada'}</span><button className="ghost" disabled={!dirty || busy} onClick={() => setDraft(cloneSettings(data.settings))}>Descartar</button><button className="primary" disabled={!dirty || busy} onClick={() => void reviewDraft()}>Revisar e aplicar</button></div>
       {message && <div className={`toast ${message.type}`} role="status"><span>{message.text}</span><button aria-label="Fechar mensagem" onClick={() => setMessage(null)}>×</button></div>}
-      {review && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="review-title"><div className="modal"><p className="eyebrow">TRANSAÇÃO SEGURA</p><h2 id="review-title">Revisar alterações</h2><p>Um backup será criado antes da validação e gravação atômica.</p><ul className="change-list">{changes.map((change) => <li key={change}>{change}</li>)}</ul><div className="modal-actions"><button className="secondary" onClick={() => setReview(false)} disabled={busy}>Cancelar</button><button className="primary" onClick={() => void apply()} disabled={busy}>{busy ? 'Validando...' : 'Aplicar com backup'}</button></div></div></div>}
+      {review && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="review-title"><div className="modal"><p className="eyebrow">TRANSAÇÃO SEGURA</p><h2 id="review-title">Revisar alterações</h2><p>Um backup será criado antes da validação e gravação atômica.</p><ul className="change-list">{changes.map((change) => <li key={change}>{change}</li>)}</ul>{changes.some((change) => change.startsWith('customizations.')) && <p className="modal-note" role="note">Esta alteração inclui funções, aliases ou comandos personalizados: será preciso abrir um novo terminal depois de aplicar.</p>}<div className="modal-actions"><button className="secondary" onClick={() => setReview(false)} disabled={busy}>Cancelar</button><button className="primary" onClick={() => void apply()} disabled={busy}>{busy ? 'Validando...' : 'Aplicar com backup'}</button></div></div></div>}
       {importPreview && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="import-title"><div className="modal"><p className="eyebrow">IMPORTAÇÃO VALIDADA</p><h2 id="import-title">Revisar configuração importada</h2><p>Origem: PowerShell Config {importPreview.sourceAppVersion}, exportado em {new Date(importPreview.exportedAt).toLocaleString('pt-BR')}.</p><ul className="change-list"><li>{importPreview.aliasCount} alias(es)</li><li>{importPreview.functionCount} função(ões)</li><li>{importPreview.commandCount} comando(s)</li><li>{importPreview.favoriteCount} favorito(s)</li><li>{importPreview.themeCount} tema(s) portátil(eis)</li></ul><p>As configurações e os favoritos atuais serão substituídos. Os temas locais existentes serão preservados.</p><div className="modal-actions"><button className="secondary" onClick={() => void cancelConfigurationImport()} disabled={busy}>Cancelar</button><button className="primary" onClick={() => void applyConfigurationImport()} disabled={busy}>{busy ? 'Aplicando...' : 'Importar com backup'}</button></div></div></div>}
     </div>
   );

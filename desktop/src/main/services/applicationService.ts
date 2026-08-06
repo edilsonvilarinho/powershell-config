@@ -64,7 +64,7 @@ export class ApplicationService {
     this.settingsService.ensureInitialized();
     this.userStateService.ensureInitialized();
     this.themeService.list();
-    this.themeService.ensureActiveTheme();
+    this.themeService.syncManagedTheme(this.settingsService.read().prompt.themeId);
   }
 
   revision(): string {
@@ -160,7 +160,7 @@ export class ApplicationService {
     const nextSettingsContent = this.settingsService.serialize(nextSettings);
     const nextThemeContent = this.themeService.readTheme(nextSettings.prompt.themeId);
     const nextTerminalContent = this.terminalService.buildContent(nextSettings);
-    const nextStateContent = this.terminalService.updateInstallerState(nextTerminalContent, nextSettings);
+    const nextStateContent = this.terminalService.updateInstallerState(nextTerminalContent, nextSettings, nextThemeContent);
     const backupRoot = path.join(this.paths.backupDirectory, new Date().toISOString().replace(/[:.]/g, '-'));
     ensureDirectory(backupRoot);
 

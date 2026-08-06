@@ -295,12 +295,14 @@ try {
     Assert-True -Condition ($nsiContent.Contains('-LogPath "$InstallLogPath" -LatestLogPath "$LatestInstallLogPath" -SessionId "$InstallSessionId"')) -Message 'NSIS deve propagar a sessao de log ao PowerShell'
     Assert-True -Condition ($nsiContent.Contains('logs\install-$InstallSessionId.log')) -Message 'NSIS deve criar um log separado por execucao'
     Assert-True -Condition ($nsiContent.Contains('Function WriteInstallLog')) -Message 'NSIS deve registrar suas proprias etapas no log operacional'
-    Assert-True -Condition ($nsiContent.Contains('--sync-startup')) -Message 'instalacao nova deve sincronizar a preferencia de inicializacao'
+    Assert-True -Condition ($nsiContent.Contains('--sync-startup')) -Message 'instalacao (nova ou upgrade) deve sincronizar a preferencia de inicializacao'
     Assert-True -Condition ($nsiContent.Contains('Var IsUpgrade')) -Message 'NSIS deve manter modo explicito para instalacao nova e upgrade'
     Assert-True -Condition ($nsiContent.Contains('IfFileExists "$INSTDIR\state\install-state.json" existingInstallDetected installModeDetected')) -Message 'upgrade deve ser detectado somente pelo estado gravado por uma instalacao concluida, nunca por residuo parcial'
     Assert-True -Condition (-not ($nsiContent -match 'IfFileExists\s+"\$INSTDIR\\app\\\*\.\*"\s+existingInstallDetected')) -Message 'residuo parcial de app nao pode por si so marcar upgrade (instalacao anterior incompleta deve ser reconfigurada, nao pulada)'
     Assert-True -Condition (-not ($nsiContent -match 'IfFileExists\s+"\$INSTDIR\\config\\\*\.\*"\s+existingInstallDetected')) -Message 'residuo parcial de config nao pode por si so marcar upgrade (instalacao anterior incompleta deve ser reconfigurada, nao pulada)'
-    Assert-True -Condition ($nsiContent.Contains('SKIP upgrade; config state backups perfil terminal fontes modulos e startup preservados')) -Message 'upgrade deve registrar explicitamente a preservacao do ambiente'
+    Assert-True -Condition ($nsiContent.Contains('UPGRADE pacotes winget e modulos powershell preservados; perfil terminal fontes e startup reverificados')) -Message 'upgrade deve registrar explicitamente quais etapas caras foram puladas, mantendo perfil/terminal/fontes/startup sempre reverificados'
+    Assert-True -Condition (-not $nsiContent.Contains('SKIP upgrade; fontes existentes preservadas')) -Message 'fontes devem ser sempre extraidas e sincronizadas, mesmo em upgrade'
+    Assert-True -Condition ($nsiContent.Contains('-IsUpgrade "$IsUpgrade"')) -Message 'NSIS deve informar explicitamente ao script de instalacao se a execucao atual e upgrade'
     Assert-True -Condition ($nsiContent.Contains('SetOutPath "$INSTDIR\app.update"')) -Message 'novo aplicativo deve ser extraido em staging separado'
     $appPayloadReadyIndex = $nsiContent.IndexOf('appPayloadReady:', [StringComparison]::Ordinal)
     $appSwapBackupIndex = $nsiContent.IndexOf('Rename "$INSTDIR\app" "$INSTDIR\app.previous"', [StringComparison]::Ordinal)
@@ -347,15 +349,19 @@ try {
 
     $installScriptContent = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\scripts\Install-PowerShellConfig.ps1') -Raw
     Assert-True -Condition ($installScriptContent.Contains('Get-Process -Name WindowsTerminal')) -Message 'script de instalacao deve manter validacao defensiva contra corrida apos o preflight'
+    Assert-True -Condition ($installScriptContent.Contains('[string]$IsUpgrade')) -Message 'script de instalacao deve receber o modo upgrade explicitamente do NSIS, com padrao seguro para instalacao nova'
+    Assert-True -Condition ($installScriptContent.Contains('SKIP upgrade; pacotes WinGet')) -Message 'pacotes WinGet nao podem ser revalidados/reinstalados em upgrade'
     $configureScriptContent = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\scripts\Configure-PowerShellConfig.ps1') -Raw
     Assert-True -Condition ($configureScriptContent.Contains('SKIP arquivo identico; copia nao executada')) -Message 'configuracao deve evitar sobrescrever fonte identica'
     Assert-True -Condition ($configureScriptContent.Contains('$primaryError = $_')) -Message 'configuracao deve preservar a falha primaria antes do rollback'
     Assert-True -Condition ($configureScriptContent.Contains('rollbackExitCode')) -Message 'configuracao deve registrar o codigo de saida do rollback'
     Assert-True -Condition ($configureScriptContent.Contains("SKIP upgrade detectado; estado gerenciado anterior preservado")) -Message 'falha de upgrade nao pode executar rollback integral da instalacao anterior'
     Assert-True -Condition ($configureScriptContent.Contains('$state.ManagedConfig')) -Message 'configuracao deve rastrear o estado gerenciado de config/settings.json e tema para permitir rollback simetrico'
+    Assert-True -Condition ($configureScriptContent.Contains('SKIP upgrade; modulos PowerShell')) -Message 'modulos PowerShell nao podem ser reinstalados em upgrade'
 
     $uninstallScriptContent = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\scripts\Uninstall-PowerShellConfig.ps1') -Raw
     Assert-True -Condition ($uninstallScriptContent.Contains('Remove-ManagedFileIfPristine')) -Message 'rollback de instalacao nova deve remover config/settings.json e tema somente se intocados desde a instalacao'
+    Assert-True -Condition (-not ($uninstallScriptContent -match 'Remove-Item\s+-LiteralPath\s+\$statePath\s+-Force\s+-ErrorAction\s+SilentlyContinue')) -Message 'falha ao remover install-state.json no rollback nao pode ser silenciada'
 
     $workflowContent = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release-windows.yml') -Raw
     Assert-True -Condition ($workflowContent.Contains('runs-on: windows-latest')) -Message 'workflow deve compilar no Windows'

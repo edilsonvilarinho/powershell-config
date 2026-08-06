@@ -135,6 +135,56 @@ export class ThemeService {
     writeAtomic(this.paths.activeThemePath, fs.readFileSync(source));
   }
 
+  // Repara active.omp.json sozinho quando desatualizado; só sobrescreve se o hash em disco bate com o último gravado por nós (senão o usuário editou por fora).
+  syncManagedTheme(themeId: string): boolean {
+    const existedBefore = fs.existsSync(this.paths.activeThemePath);
+    this.ensureActiveTheme();
+    if (!existedBefore) return true;
+
+    let desiredContent: Buffer;
+    try {
+      desiredContent = this.readTheme(themeId);
+    } catch {
+      return false;
+    }
+    const currentContent = fs.readFileSync(this.paths.activeThemePath);
+    const desiredHash = sha256(desiredContent);
+    const currentHash = sha256(currentContent);
+    if (desiredHash === currentHash) return false;
+
+    const expectedHash = this.readManagedThemeHash();
+    if (!expectedHash || expectedHash.toLowerCase() !== currentHash.toLowerCase()) return false;
+
+    writeAtomic(this.paths.activeThemePath, desiredContent);
+    this.writeManagedThemeHash(desiredHash.toUpperCase());
+    return true;
+  }
+
+  private readManagedThemeHash(): string | null {
+    if (!fs.existsSync(this.paths.statePath)) return null;
+    try {
+      const state = JSON.parse(fs.readFileSync(this.paths.statePath, 'utf8')) as {
+        ManagedConfig?: { ThemeInstalledHash?: unknown };
+      };
+      const hash = state.ManagedConfig?.ThemeInstalledHash;
+      return typeof hash === 'string' ? hash : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeManagedThemeHash(hash: string): void {
+    if (!fs.existsSync(this.paths.statePath)) return;
+    try {
+      const state = JSON.parse(fs.readFileSync(this.paths.statePath, 'utf8')) as { ManagedConfig?: Record<string, unknown> };
+      if (!state.ManagedConfig) return;
+      state.ManagedConfig.ThemeInstalledHash = hash;
+      writeAtomic(this.paths.statePath, `${JSON.stringify(state, null, 2)}\n`);
+    } catch {
+      // install-state.json ilegível: o self-heal do tema simplesmente não atualiza o rastreamento nesta execução.
+    }
+  }
+
   async preview(themeId: string): Promise<string> {
     const record = this.resolve(themeId);
     const cacheKey = `${hashFile(record.filePath)}-${await this.ohMyPoshVersion()}`;

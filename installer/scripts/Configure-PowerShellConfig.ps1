@@ -127,7 +127,11 @@ function Install-ManagedFonts {
         }
     }
 
-    Invoke-InstallerLoggedStep -Stage 'fonts.notification' -Action { Send-FontChangeNotification } | Out-Null
+    Invoke-InstallerLoggedStep -Stage 'fonts.notification' -Action {
+        if (-not (Send-FontChangeNotification)) {
+            Write-InstallerLog -Level 'WARN' -Stage 'fonts.notification' -Message 'SendMessageTimeout(WM_FONTCHANGE) nao confirmou entrega; aplicativos abertos podem nao exibir a fonte ate reiniciar.'
+        }
+    } | Out-Null
 }
 
 $existingState = $null
@@ -166,7 +170,11 @@ try {
     $state.ProductVersion = $ProductVersion
     Write-InstallerLog -Stage 'state.load' -Message "isUpgrade=$isUpgrade statePath=$statePath"
 
-    Install-RequiredModules
+    if ($isUpgrade) {
+        Write-InstallerLog -Stage 'modules' -Message 'SKIP upgrade; modulos PowerShell (posh-git, Terminal-Icons, PSReadLine) preservados'
+    } else {
+        Install-RequiredModules
+    }
 
     $managedConfigDirectory = Join-Path $InstallRoot 'config'
     $managedThemesDirectory = Join-Path $managedConfigDirectory 'themes'

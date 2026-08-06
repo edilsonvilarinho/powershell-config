@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultSettings } from '../../shared/settings.js';
 import type { AppPaths } from './paths.js';
+import { sha256 } from './fileService.js';
 import { TerminalService } from './terminalService.js';
 
 const temporaryDirectories: string[] = [];
@@ -82,5 +83,29 @@ describe('TerminalService', () => {
   it('interrompe diante de JSONC inválido', () => {
     const paths = createPaths('{ inválido');
     expect(() => new TerminalService(paths).buildContent(defaultSettings)).toThrow(/inválido/);
+  });
+
+  it('atualiza hash do tema em install-state.json quando o conteúdo do tema é informado', () => {
+    const paths = createPaths('{}');
+    fs.writeFileSync(paths.statePath, JSON.stringify({ Terminal: {}, ManagedConfig: {} }), 'utf8');
+    const service = new TerminalService(paths);
+    const themeContent = Buffer.from('{"tema":"novo"}', 'utf8');
+
+    const updated = service.updateInstallerState('{}', defaultSettings, themeContent);
+
+    expect(updated).not.toBeNull();
+    const state = JSON.parse(updated as string);
+    expect(state.ManagedConfig.ThemeInstalledHash).toBe(sha256(themeContent).toUpperCase());
+  });
+
+  it('não altera ManagedConfig quando o conteúdo do tema não é informado', () => {
+    const paths = createPaths('{}');
+    fs.writeFileSync(paths.statePath, JSON.stringify({ Terminal: {}, ManagedConfig: { ThemeInstalledHash: 'PRESERVADO' } }), 'utf8');
+    const service = new TerminalService(paths);
+
+    const updated = service.updateInstallerState('{}', defaultSettings);
+
+    const state = JSON.parse(updated as string);
+    expect(state.ManagedConfig.ThemeInstalledHash).toBe('PRESERVADO');
   });
 });

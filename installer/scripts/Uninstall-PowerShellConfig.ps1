@@ -118,7 +118,11 @@ try {
             }
         } | Out-Null
     }
-    Invoke-InstallerLoggedStep -Stage "$operation.fonts.notification" -Action { Send-FontChangeNotification } | Out-Null
+    Invoke-InstallerLoggedStep -Stage "$operation.fonts.notification" -Action {
+        if (-not (Send-FontChangeNotification)) {
+            Write-InstallerLog -Level 'WARN' -Stage "$operation.fonts.notification" -Message 'SendMessageTimeout(WM_FONTCHANGE) nao confirmou entrega.'
+        }
+    } | Out-Null
 
     Invoke-InstallerLoggedStep -Stage "$operation.managedConfig" -Action {
         $managedConfigProperty = $state.PSObject.Properties['ManagedConfig']
@@ -141,7 +145,13 @@ try {
 
     if ($RollbackOnly) {
         Invoke-InstallerLoggedStep -Stage 'rollback.state' -Action {
-            Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $statePath) {
+                try {
+                    Remove-Item -LiteralPath $statePath -Force -ErrorAction Stop
+                } catch {
+                    throw "Falha ao remover $statePath apos rollback de instalacao nova. Enquanto este arquivo existir, instalacoes futuras serao tratadas incorretamente como upgrade. Remova manualmente o arquivo ou a pasta 'state' e reinstale. Causa: $($_.Exception.Message)"
+                }
+            }
         } | Out-Null
     }
     Write-InstallerLog -Stage $operation -Message 'SUCCESS configuracoes gerenciadas removidas'

@@ -3,8 +3,11 @@ param(
     [Parameter(Mandatory = $true)][string]$ProductVersion,
     [string]$LogPath,
     [string]$LatestLogPath,
-    [string]$SessionId
+    [string]$SessionId,
+    [string]$IsUpgrade = '0'
 )
+
+$isUpgrade = $IsUpgrade -eq '1'
 
 $ErrorActionPreference = 'Stop'
 $loggingScript = Join-Path $PSScriptRoot 'InstallerLogging.ps1'
@@ -96,35 +99,45 @@ try {
     }
     Write-InstallerLog -Stage 'preflight.platform' -Message "caption=$($platform.Caption) build=$($platform.Build) architecture=$($platform.Architecture)"
 
-    $wingetCommand = Invoke-InstallerLoggedStep -Stage 'preflight.winget' -Action {
-        $command = Get-Command winget.exe -ErrorAction SilentlyContinue
-        if ($null -eq $command) {
-            throw 'WinGet nao esta disponivel. Instale ou atualize o App Installer pela Microsoft Store.'
+    if ($isUpgrade) {
+        Write-InstallerLog -Stage 'preflight.winget' -Message 'SKIP upgrade; WinGet nao e revalidado'
+        Write-InstallerLog -Stage 'preflight.github' -Message 'SKIP upgrade; conectividade nao precisa ser pre-validada (pacotes WinGet nao serao reverificados)'
+        Write-InstallerLog -Stage 'packages' -Message 'SKIP upgrade; pacotes WinGet (Microsoft.WindowsTerminal, Microsoft.PowerShell, JanDeDobbeleer.OhMyPosh, Git.Git, Neovim.Neovim) preservados'
+    } else {
+        $wingetCommand = Invoke-InstallerLoggedStep -Stage 'preflight.winget' -Action {
+            $command = Get-Command winget.exe -ErrorAction SilentlyContinue
+            if ($null -eq $command) {
+                throw 'WinGet nao esta disponivel. Instale ou atualize o App Installer pela Microsoft Store.'
+            }
+            $command
         }
-        $command
-    }
-    Write-InstallerLog -Stage 'preflight.winget' -Message "path=$($wingetCommand.Source)"
+        Write-InstallerLog -Stage 'preflight.winget' -Message "path=$($wingetCommand.Source)"
 
-    Invoke-InstallerLoggedStep -Stage 'preflight.github' -Action {
-        Invoke-WebRequest -Uri 'https://github.com' -Method Head -UseBasicParsing -TimeoutSec 15 | Out-Null
-    } | Out-Null
+        Invoke-InstallerLoggedStep -Stage 'preflight.github' -Action {
+            Invoke-WebRequest -Uri 'https://github.com' -Method Head -UseBasicParsing -TimeoutSec 15 | Out-Null
+        } | Out-Null
+
+        foreach ($packageId in @(
+            'Microsoft.WindowsTerminal',
+            'Microsoft.PowerShell',
+            'JanDeDobbeleer.OhMyPosh',
+            'Git.Git',
+            'Neovim.Neovim'
+        )) {
+            Invoke-WinGet -PackageId $packageId
+        }
+    }
 
     Invoke-InstallerLoggedStep -Stage 'preflight.windowsTerminal' -Action {
         $terminalProcesses = @(Get-Process -Name WindowsTerminal -ErrorAction SilentlyContinue)
         if ($terminalProcesses.Count -gt 0) {
-            throw 'Feche todas as janelas do Windows Terminal antes de continuar a instalacao.'
+            if ($isUpgrade) {
+                Write-InstallerLog -Level 'WARN' -Stage 'preflight.windowsTerminal' -Message 'Windows Terminal em execucao durante reparo de upgrade; a gravacao de settings.json/fragmento prossegue (escrita atomica tmp+rename).'
+            } else {
+                throw 'Feche todas as janelas do Windows Terminal antes de continuar a instalacao.'
+            }
         }
     } | Out-Null
-
-    foreach ($packageId in @(
-        'Microsoft.WindowsTerminal',
-        'Microsoft.PowerShell',
-        'JanDeDobbeleer.OhMyPosh',
-        'Git.Git',
-        'Neovim.Neovim'
-    )) {
-        Invoke-WinGet -PackageId $packageId
-    }
 
     $pwsh = Invoke-InstallerLoggedStep -Stage 'powershell7.resolve' -Action { Resolve-PowerShell7 }
     $pwshVersion = (Get-Item -LiteralPath $pwsh).VersionInfo.ProductVersion
