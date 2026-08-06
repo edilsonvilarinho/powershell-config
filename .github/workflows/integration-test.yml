@@ -1,0 +1,97 @@
+name: Integration Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_upgrade:
+        description: 'Pular fase de upgrade (nao baixar release anterior)'
+        type: boolean
+        default: false
+
+jobs:
+  integration-test:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build desktop
+        working-directory: desktop
+        run: npm run build
+
+      - name: Package Electron payload (x64, unsigned)
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          npx electron-builder --win --x64 --dir --config.directories.output=dist-build/x64 "-c.extraMetadata.version=0.0.0"
+          if ($LASTEXITCODE -ne 0) { throw "electron-builder x64 failed: $LASTEXITCODE" }
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Build Windows installer (x64, unsigned)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $makensis = @(
+            'C:\Program Files (x86)\NSIS\makensis.exe',
+            'C:\Program Files\NSIS\makensis.exe'
+          ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if ($null -eq $makensis) { throw 'makensis.exe was not found after installing NSIS.' }
+          $payload = (Resolve-Path 'desktop\dist-build\x64\win-unpacked').Path
+          Push-Location installer
+          try {
+            & $makensis '/DPRODUCT_VERSION=0.0.0' '/DTARGET_ARCH=x64' "/DDESKTOP_PAYLOAD_DIR=$payload" 'PowerShellConfig.nsi'
+            if ($LASTEXITCODE -ne 0) { throw "NSIS x64 failed with exit code $LASTEXITCODE." }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Download latest published release installer
+        id: previous
+        if: ${{ inputs.skip_upgrade != true }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path previous-installer -Force | Out-Null
+          $latestTag = gh release list --limit 1 --exclude-drafts --exclude-pre-releases --json tagName --jq '.[0].tagName'
+          if (-not $latestTag) {
+            Write-Host 'Nenhuma release publicada encontrada; teste de upgrade sera pulado.'
+            "HAS_PREVIOUS=0" >> $env:GITHUB_OUTPUT
+            return
+          }
+          gh release download $latestTag --pattern '*-win-x64.exe' --dir previous-installer
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao baixar instalador da release $latestTag" }
+          "HAS_PREVIOUS=1" >> $env:GITHUB_OUTPUT
+
+      - name: Run end-to-end integration test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Resolve-Path 'dist\PowerShellConfig-Setup-0.0.0-win-x64.exe'
+          $params = @{ InstallerPath = $installer.Path }
+          if ('${{ steps.previous.outputs.HAS_PREVIOUS }}' -eq '1') {
+            $previous = Get-ChildItem 'previous-installer\*-win-x64.exe' | Select-Object -First 1
+            $params.PreviousInstallerPath = $previous.FullName
+          } else {
+            $params.SkipUpgrade = $true
+          }
+          .\installer\scripts\Test-Integration.ps1 @params

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Typecheck desktop
+        working-directory: desktop
+        run: npm run typecheck
+
+      - name: Test desktop
+        working-directory: desktop
+        run: npm test
+
+      - name: Validate installer sources
+        shell: pwsh
+        run: |
+          .\installer\scripts\Test-PowerShellConfig.ps1
