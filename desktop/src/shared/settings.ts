@@ -3,6 +3,13 @@ import { z } from 'zod';
 export const aliasNames = ['g', 'vim', 'grep', 'tig', 'less', 'ls', 'dir', 'll'] as const;
 
 const customizationIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use uma cor hexadecimal no formato #RRGGBB.').nullable();
+const cssLengthSchema = z.string().regex(/^-?[0-9]+(\.[0-9]+)?(px|pt|%)?$/, 'Use um número, opcionalmente com px/pt/%.').nullable();
+const openTypeTagSchema = z.string().regex(/^[\x20-\x7E]{4}$/, 'Use exatamente 4 caracteres ASCII imprimíveis (ex.: "wght", "ss01").');
+const paddingSchema = z.string().regex(
+  /^-?[0-9]+(\.[0-9]+)?( *, *-?[0-9]+(\.[0-9]+)?|( *, *-?[0-9]+(\.[0-9]+)?){3})?$/,
+  'Use "N", "N, N" ou "N, N, N, N".',
+).nullable();
 const commandNameSchema = z.string().trim().min(1).max(128).regex(
   /^[A-Za-z_][A-Za-z0-9_.-]*$/,
   'Use apenas letras, números, ponto, hífen e sublinhado; o primeiro caractere deve ser uma letra ou sublinhado.',
@@ -89,7 +96,7 @@ const customizationsSchema = z.object({
 });
 
 export const editableSettingsSchema = z.object({
-  schemaVersion: z.literal(3),
+  schemaVersion: z.literal(4),
   ui: z.object({
     theme: z.enum(['dark', 'light']),
   }).strict(),
@@ -125,6 +132,35 @@ export const editableSettingsSchema = z.object({
     opacity: z.number().int().min(0).max(100),
     useAcrylic: z.boolean(),
     elevate: z.boolean(),
+
+    foreground: hexColorSchema,
+    background: hexColorSchema,
+    selectionBackground: hexColorSchema,
+
+    fontWeight: z.union([
+      z.enum(['thin', 'extra-light', 'light', 'semi-light', 'normal', 'medium', 'semi-bold', 'bold', 'extra-bold', 'black', 'extra-black']),
+      z.number().int().min(100).max(990),
+    ]).nullable(),
+    cellWidth: cssLengthSchema,
+    cellHeight: cssLengthSchema,
+    fontFeatures: z.array(z.object({ tag: openTypeTagSchema, value: z.number().int() }).strict()).max(50),
+    fontAxes: z.array(z.object({ tag: openTypeTagSchema, value: z.number() }).strict()).max(50),
+
+    cursorShape: z.enum(['bar', 'doubleUnderscore', 'emptyBox', 'filledBox', 'underscore', 'vintage']),
+    cursorColor: hexColorSchema,
+    cursorHeight: z.number().int().min(1).max(100).nullable(),
+
+    backgroundImagePath: z.string().trim().max(1024).nullable(),
+    backgroundImageOpacity: z.number().min(0).max(1).nullable(),
+    backgroundImageStretchMode: z.enum(['fill', 'none', 'uniform', 'uniformToFill']).nullable(),
+    backgroundImageAlignment: z.enum(['center', 'left', 'right', 'top', 'bottom', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight']).nullable(),
+
+    intenseTextStyle: z.enum(['none', 'bold', 'bright', 'all']).nullable(),
+    adjustIndistinguishableColors: z.enum(['never', 'indexed', 'always']).nullable(),
+    retroTerminalEffect: z.boolean(),
+
+    padding: paddingSchema,
+    scrollbarState: z.enum(['visible', 'hidden', 'always']).nullable(),
   }).strict(),
 }).strict();
 
@@ -148,7 +184,7 @@ export const settingsSchema = editableSettingsSchema.superRefine((settings, cont
 export type AppSettings = z.infer<typeof editableSettingsSchema>;
 
 export const defaultSettings: AppSettings = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   ui: { theme: 'dark' },
   startup: { enabled: true },
   prompt: { enabled: true, themeId: 'builtin:takuya', themeName: 'takuya' },
@@ -171,6 +207,32 @@ export const defaultSettings: AppSettings = {
     opacity: 80,
     useAcrylic: false,
     elevate: true,
+
+    foreground: null,
+    background: null,
+    selectionBackground: null,
+
+    fontWeight: null,
+    cellWidth: null,
+    cellHeight: null,
+    fontFeatures: [],
+    fontAxes: [],
+
+    cursorShape: 'bar',
+    cursorColor: null,
+    cursorHeight: null,
+
+    backgroundImagePath: null,
+    backgroundImageOpacity: null,
+    backgroundImageStretchMode: null,
+    backgroundImageAlignment: null,
+
+    intenseTextStyle: null,
+    adjustIndistinguishableColors: null,
+    retroTerminalEffect: false,
+
+    padding: null,
+    scrollbarState: null,
   },
 };
 
@@ -190,12 +252,12 @@ function mergeKnownDefaults(defaultValue: unknown, candidate: unknown): unknown 
 }
 
 export function migrateSettings(input: unknown): AppSettings {
-  if (!isRecord(input) || ![1, 2, 3].includes(input.schemaVersion as number)) {
+  if (!isRecord(input) || ![1, 2, 3, 4].includes(input.schemaVersion as number)) {
     throw new Error('Versão de settings.json ausente ou não suportada.');
   }
-  let version3: Record<string, unknown>;
+  let migratedRecord: Record<string, unknown>;
   if (input.schemaVersion === 1) {
-    version3 = { ...input, schemaVersion: 3, customizations: defaultSettings.customizations };
+    migratedRecord = { ...input, schemaVersion: 4, customizations: defaultSettings.customizations };
   } else if (input.schemaVersion === 2) {
     const customizations = isRecord(input.customizations) ? input.customizations : {};
     const addDescription = (entries: unknown): unknown[] => Array.isArray(entries)
@@ -203,9 +265,9 @@ export function migrateSettings(input: unknown): AppSettings {
         ? { ...entry, description: typeof entry.description === 'string' ? entry.description : '' }
         : entry)
       : [];
-    version3 = {
+    migratedRecord = {
       ...input,
-      schemaVersion: 3,
+      schemaVersion: 4,
       customizations: {
         ...customizations,
         aliases: addDescription(customizations.aliases),
@@ -213,9 +275,11 @@ export function migrateSettings(input: unknown): AppSettings {
       },
     };
   } else {
-    version3 = input;
+    // schemaVersion 3 ou 4: mergeKnownDefaults abaixo já injeta os campos novos de `terminal`
+    // (foreground/background/selectionBackground/fontWeight/etc.) ausentes em settings v3 com seus neutros.
+    migratedRecord = { ...input, schemaVersion: 4 };
   }
-  return editableSettingsSchema.parse(mergeKnownDefaults(defaultSettings, version3));
+  return editableSettingsSchema.parse(mergeKnownDefaults(defaultSettings, migratedRecord));
 }
 
 export interface ThemeInfo {
@@ -237,12 +301,19 @@ export interface Diagnostics {
   configuredFontInstalled: boolean;
 }
 
+export interface TerminalColorSchemeColors {
+  background: string | null;
+  foreground: string | null;
+  selectionBackground: string | null;
+}
+
 export interface BootstrapData {
   settings: AppSettings;
   userState: UserState;
   revision: string;
   themes: ThemeInfo[];
   colorSchemes: string[];
+  activeColorSchemeColors: TerminalColorSchemeColors | null;
   diagnostics: Diagnostics;
   nativeAliases: NativeAliasInfo[];
   appVersion: string;
@@ -347,6 +418,7 @@ export interface DesktopApi {
   applySettings(request: ApplyRequest): Promise<ApplyResult>;
   restoreDefaults(expectedRevision: string): Promise<ApplyResult>;
   restoreLatestBackup(expectedRevision: string): Promise<ApplyResult>;
+  selectBackgroundImage(): Promise<string | null>;
   openTerminal(): Promise<void>;
   openLogs(): Promise<void>;
   quit(): void;

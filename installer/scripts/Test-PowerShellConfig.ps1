@@ -78,6 +78,39 @@ try {
     Assert-Equal -Expected 'newTab' -Actual (@($restored.actions | Where-Object { (Get-TerminalActionKey -Action $_) -eq 'ctrl+t' })[0].command) -Message 'rollback deve preservar atalho nao gerenciado'
     Assert-True -Condition (@($restored.actions | Where-Object command -eq 'globalSummon').Count -eq 1) -Message 'rollback deve preservar acao sem propriedade keys'
 
+    $colorOverridePath = Join-Path $tempRoot 'settings-color-override.json'
+    $colorOverrideBackup = Join-Path $tempRoot 'settings-color-override.original.json'
+    Save-JsonFile -Path $colorOverridePath -Value $originalSettings
+    Copy-Item -LiteralPath $colorOverridePath -Destination $colorOverrideBackup
+    $colorOverrideMerge = Merge-TerminalSettings -Path $colorOverridePath
+    $colorOverrideSettings = Read-JsonFile -Path $colorOverridePath
+    # Simula o app desktop adicionando overrides de aparencia depois da instalacao
+    # (o instalador nunca escreve essas chaves - ver Merge-TerminalSettings).
+    Set-JsonProperty -Object $colorOverrideSettings.profiles.defaults -Name 'cursorColor' -Value '#FF00FF'
+    Set-JsonProperty -Object $colorOverrideSettings.profiles.defaults -Name 'experimental.retroTerminalEffect' -Value $true
+    Save-JsonFile -Path $colorOverridePath -Value $colorOverrideSettings
+    $colorOverrideState = [pscustomobject]@{
+        OriginalExisted = $true
+        BackupPath = $colorOverrideBackup
+        Snapshot = $colorOverrideMerge.Snapshot
+        PostInstallHash = $colorOverrideMerge.PostInstallHash
+        ManagedValues = [pscustomobject]@{
+            colorScheme = 'One Half Dark (modded)'
+            elevate = $true
+            font = [pscustomobject]@{ face = 'Hack NF'; size = 11.0 }
+            opacity = 80
+            startingDirectory = $null
+            suppressApplicationTitle = $true
+            useAcrylic = $false
+            cursorColor = '#FF00FF'
+            'experimental.retroTerminalEffect' = $true
+        }
+    }
+    Restore-TerminalSettings -Path $colorOverridePath -State $colorOverrideState
+    $colorOverrideRestored = Read-JsonFile -Path $colorOverridePath
+    Assert-True -Condition ($null -eq $colorOverrideRestored.profiles.defaults.PSObject.Properties['cursorColor']) -Message 'rollback deve remover override de cor adicionado pelo app depois da instalacao'
+    Assert-True -Condition ($null -eq $colorOverrideRestored.profiles.defaults.PSObject.Properties['experimental.retroTerminalEffect']) -Message 'rollback deve remover a chave experimental.retroTerminalEffect (nome literal com ponto, nao objeto aninhado)'
+
     $jsoncPath = Join-Path $tempRoot 'settings-jsonc.json'
     Write-Utf8NoBomFile -Path $jsoncPath -Content "{ // comentario`n  `"profiles`": { `"defaults`": {}, },`n}"
     Merge-TerminalSettings -Path $jsoncPath | Out-Null
@@ -202,7 +235,7 @@ try {
     Assert-True -Condition (-not ($profileSource -match 'Invoke-WebRequest|Install-Module|Install-PSResource')) -Message 'perfil distribuido nao pode instalar ou baixar dependencias na abertura'
     Assert-True -Condition (-not ($profileSource -match '\bj8\b|\bj21\b|JAVA_HOME')) -Message 'perfil distribuido nao pode referenciar aliases Java desativados'
     Assert-True -Condition ($profileSource.Contains("Join-Path `$PSScriptRoot 'config\custom-profile.ps1'")) -Message 'perfil deve carregar customizacoes somente pelo caminho gerenciado fixo'
-    Assert-True -Condition ($profileSource.Contains('schemaVersion -notin @(1, 2, 3)')) -Message 'perfil deve aceitar settings migrados para schema v3'
+    Assert-True -Condition ($profileSource.Contains('schemaVersion -notin @(1, 2, 3, 4)')) -Message 'perfil deve aceitar settings migrados ate o schema v4'
     Assert-True -Condition ($profileSource.Contains('$global:PowerShellConfigCustomHelpEntries')) -Message 'helper deve consumir metadados das customizacoes geradas'
     foreach ($aliasName in @('g', 'vim', 'grep', 'tig', 'less', 'ls', 'dir', 'll')) {
         $registrationPattern = if ($aliasName -in @('ls', 'dir', 'll')) {
@@ -237,13 +270,20 @@ try {
     }
 
     $defaultSettings = Get-Content -LiteralPath (Join-Path $repoRoot 'powershell\settings.default.json') -Raw | ConvertFrom-Json -ErrorAction Stop
-    Assert-Equal -Expected 3 -Actual $defaultSettings.schemaVersion -Message 'configuracao visual deve iniciar no schema v3'
+    Assert-Equal -Expected 4 -Actual $defaultSettings.schemaVersion -Message 'configuracao visual deve iniciar no schema v4'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.aliases).Count -Message 'aliases personalizados devem iniciar vazios'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.functions).Count -Message 'funcoes personalizadas devem iniciar vazias'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.commands).Count -Message 'comandos personalizados devem iniciar vazios'
     Assert-Equal -Expected $true -Actual $defaultSettings.startup.enabled -Message 'aplicativo deve iniciar com Windows por padrao'
     Assert-Equal -Expected 'builtin:takuya' -Actual $defaultSettings.prompt.themeId -Message 'takuya deve permanecer o tema inicial'
     Assert-Equal -Expected 80 -Actual $defaultSettings.terminal.opacity -Message 'configuracao visual deve refletir opacidade inicial do instalador'
+    Assert-True -Condition ($null -eq $defaultSettings.terminal.foreground) -Message 'override de primeiro plano deve iniciar sem valor (herda do esquema)'
+    Assert-True -Condition ($null -eq $defaultSettings.terminal.background) -Message 'override de tela de fundo deve iniciar sem valor (herda do esquema)'
+    Assert-True -Condition ($null -eq $defaultSettings.terminal.selectionBackground) -Message 'override de selecao deve iniciar sem valor (herda do esquema)'
+    Assert-Equal -Expected 'bar' -Actual $defaultSettings.terminal.cursorShape -Message 'forma do cursor deve iniciar como barra'
+    Assert-Equal -Expected $false -Actual $defaultSettings.terminal.retroTerminalEffect -Message 'efeito retro deve iniciar desativado'
+    Assert-Equal -Expected 0 -Actual @($defaultSettings.terminal.fontFeatures).Count -Message 'recursos de fonte devem iniciar vazios'
+    Assert-Equal -Expected 0 -Actual @($defaultSettings.terminal.fontAxes).Count -Message 'eixos de fonte devem iniciar vazios'
 
     $desktopPackage = Get-Content -LiteralPath (Join-Path $repoRoot 'desktop\package.json') -Raw | ConvertFrom-Json -ErrorAction Stop
     Assert-Equal -Expected $versionMatch.Groups[1].Value -Actual $desktopPackage.version -Message 'versao base do desktop e version.nsh devem permanecer alinhadas'

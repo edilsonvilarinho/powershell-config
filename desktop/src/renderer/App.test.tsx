@@ -9,6 +9,7 @@ const bootstrap: BootstrapData = {
   revision: 'revision-1',
   themes: [{ id: 'builtin:takuya', name: 'takuya', source: 'builtin' }],
   colorSchemes: ['One Half Dark (modded)'],
+  activeColorSchemeColors: null,
   diagnostics: {
     powershellVersion: '7.5.2',
     ohMyPoshVersion: '29.11.0',
@@ -48,6 +49,7 @@ describe('App', () => {
       applySettings: vi.fn(),
       restoreDefaults: vi.fn(),
       restoreLatestBackup: vi.fn(),
+      selectBackgroundImage: vi.fn().mockResolvedValue(null),
       openTerminal: vi.fn(),
       openLogs: vi.fn(),
       quit: vi.fn(),
@@ -64,7 +66,7 @@ describe('App', () => {
     expect(await screen.findByText('Seu PowerShell, sob controle.')).toBeInTheDocument();
     expect(screen.getByText('7.5.2')).toBeInTheDocument();
     expect(screen.getByText('29.11.0')).toBeInTheDocument();
-    expect(screen.getByText(/schema v3 válido/)).toBeInTheDocument();
+    expect(screen.getByText(/schema v4 válido/)).toBeInTheDocument();
   });
 
   it('renderiza as cinco telas principais pela navegação lateral', async () => {
@@ -80,6 +82,36 @@ describe('App', () => {
     expect(screen.getByText('Aparência sem substituir seu JSON.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Configurações$/ }));
     expect(screen.getByText('Preferências e recuperação.')).toBeInTheDocument();
+  });
+
+  it('expande o painel de substituição de cores e permite editar e resetar um campo', async () => {
+    installApi();
+    render(<App />);
+    await screen.findByText('Seu PowerShell, sob controle.');
+    fireEvent.click(screen.getByRole('button', { name: /Windows Terminal$/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Substituir cores do esquema/ }));
+    const [hexInput] = screen.getAllByPlaceholderText('Herdado do esquema') as HTMLInputElement[];
+    expect(hexInput.value).toBe('');
+
+    fireEvent.change(hexInput, { target: { value: '#DCDFE4' } });
+    expect(hexInput.value).toBe('#DCDFE4');
+
+    const resetButton = screen.getByRole('button', { name: /Restaurar primeiro plano para o padrão do esquema/i });
+    expect(resetButton).not.toBeDisabled();
+    fireEvent.click(resetButton);
+    expect(screen.getAllByPlaceholderText('Herdado do esquema')[0]).toHaveValue('');
+  });
+
+  it('usa o diálogo nativo para escolher a imagem de fundo do terminal', async () => {
+    const api = installApi({ selectBackgroundImage: vi.fn().mockResolvedValue('C:\\imagens\\fundo.png') });
+    render(<App />);
+    await screen.findByText('Seu PowerShell, sob controle.');
+    fireEvent.click(screen.getByRole('button', { name: /Windows Terminal$/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Escolher arquivo...' }));
+    await waitFor(() => expect(api.selectBackgroundImage).toHaveBeenCalled());
+    expect(await screen.findByText('C:\\imagens\\fundo.png')).toBeInTheDocument();
   });
 
   it('navega para configurações e alterna para o tema claro no rascunho', async () => {

@@ -11,6 +11,7 @@ export const ipcChannels = {
   applySettings: 'powershell-config:apply-settings',
   restoreDefaults: 'powershell-config:restore-defaults',
   restoreLatestBackup: 'powershell-config:restore-latest-backup',
+  selectBackgroundImage: 'powershell-config:select-background-image',
   openTerminal: 'powershell-config:open-terminal',
   openLogs: 'powershell-config:open-logs',
   quit: 'powershell-config:quit',

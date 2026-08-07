@@ -95,6 +95,7 @@ export class ApplicationService {
       revision: this.revision(),
       themes: this.themeService.list(),
       colorSchemes: this.terminalService.listColorSchemes(),
+      activeColorSchemeColors: this.terminalService.getColorSchemeColors(settings.terminal.colorScheme),
       diagnostics,
       nativeAliases,
       appVersion: app.getVersion(),
@@ -151,6 +152,11 @@ export class ApplicationService {
           'Isso costuma indicar que a instalação foi interrompida antes de concluir a configuração do Terminal. ' +
           'Reabra o instalador do PowerShell Config para reparar a configuração; se persistir, escolha outro esquema de cores.',
       );
+    }
+
+    const backgroundImagePath = nextSettings.terminal.backgroundImagePath;
+    if (backgroundImagePath && backgroundImagePath !== 'desktopWallpaper' && !fs.existsSync(backgroundImagePath)) {
+      throw new Error(`A imagem de fundo "${backgroundImagePath}" não foi encontrada. Escolha outro arquivo.`);
     }
 
     await this.themeService.preview(nextSettings.prompt.themeId);

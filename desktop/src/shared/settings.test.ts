@@ -26,14 +26,14 @@ describe('settingsSchema', () => {
     delete legacyV1.help;
     delete legacyV1.customizations;
     const migrated = migrateSettings(legacyV1);
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(migrated.help).toEqual(defaultSettings.help);
     expect(migrated.aliases).toEqual(defaultSettings.aliases);
     expect(migrated.customizations).toEqual(defaultSettings.customizations);
   });
 
   it('rejeita versão desconhecida em vez de presumir migração', () => {
-    expect(() => migrateSettings({ ...defaultSettings, schemaVersion: 4 })).toThrow(/não suportada/);
+    expect(() => migrateSettings({ ...defaultSettings, schemaVersion: 5 })).toThrow(/não suportada/);
   });
 
   it('aceita customizações versionadas e limita aliases a nomes de comando', () => {
@@ -103,7 +103,7 @@ describe('settingsSchema', () => {
     };
 
     const migrated = migrateSettings(legacyV2);
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(migrated.customizations.aliases[0].description).toBe('');
     expect(migrated.customizations.functions[0].description).toBe('');
     expect(() => settingsSchema.parse(migrated)).toThrow(/descrição/);
@@ -117,5 +117,71 @@ describe('settingsSchema', () => {
     expect(() => settingsSchema.parse({ ...customized, customizations: { ...customized.customizations, aliases: [{ ...alias, description: '' }] } })).toThrow(/descrição/);
     expect(() => settingsSchema.parse({ ...customized, customizations: { ...customized.customizations, aliases: [{ ...alias, description: 'linha 1\nlinha 2' }] } })).toThrow(/única linha/);
     expect(() => settingsSchema.parse({ ...customized, customizations: { ...customized.customizations, aliases: [{ ...alias, description: 'x'.repeat(257) }] } })).toThrow();
+  });
+
+  it('migra terminal v3 preenchendo os novos overrides de aparência com neutros', () => {
+    const legacyV3 = structuredClone(defaultSettings) as unknown as Record<string, unknown>;
+    legacyV3.schemaVersion = 3;
+    const terminalV3 = legacyV3.terminal as Record<string, unknown>;
+    delete terminalV3.foreground;
+    delete terminalV3.background;
+    delete terminalV3.selectionBackground;
+    delete terminalV3.fontWeight;
+    delete terminalV3.cellWidth;
+    delete terminalV3.cellHeight;
+    delete terminalV3.fontFeatures;
+    delete terminalV3.fontAxes;
+    delete terminalV3.cursorShape;
+    delete terminalV3.cursorColor;
+    delete terminalV3.cursorHeight;
+    delete terminalV3.backgroundImagePath;
+    delete terminalV3.backgroundImageOpacity;
+    delete terminalV3.backgroundImageStretchMode;
+    delete terminalV3.backgroundImageAlignment;
+    delete terminalV3.intenseTextStyle;
+    delete terminalV3.adjustIndistinguishableColors;
+    delete terminalV3.retroTerminalEffect;
+    delete terminalV3.padding;
+    delete terminalV3.scrollbarState;
+
+    const migrated = migrateSettings(legacyV3);
+    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.terminal.foreground).toBeNull();
+    expect(migrated.terminal.background).toBeNull();
+    expect(migrated.terminal.selectionBackground).toBeNull();
+    expect(migrated.terminal.cursorShape).toBe('bar');
+    expect(migrated.terminal.retroTerminalEffect).toBe(false);
+    expect(migrated.terminal.fontFeatures).toEqual([]);
+    expect(migrated.terminal.fontAxes).toEqual([]);
+  });
+
+  it('rejeita formatos inválidos nos novos campos de aparência do terminal', () => {
+    const base = defaultSettings;
+    expect(() => settingsSchema.parse({ ...base, terminal: { ...base.terminal, foreground: 'red' } })).toThrow(/hexadecimal/);
+    expect(() => settingsSchema.parse({ ...base, terminal: { ...base.terminal, fontWeight: 50 } })).toThrow();
+    expect(() => settingsSchema.parse({ ...base, terminal: { ...base.terminal, fontFeatures: [{ tag: 'ss1', value: 1 }] } })).toThrow(/4 caracteres/);
+    expect(() => settingsSchema.parse({ ...base, terminal: { ...base.terminal, padding: 'oito' } })).toThrow();
+  });
+
+  it('aceita valores válidos e null explícito nos novos campos de aparência do terminal', () => {
+    const base = defaultSettings;
+    const customized = {
+      ...base,
+      terminal: {
+        ...base.terminal,
+        foreground: '#DCDFE4',
+        background: null,
+        fontWeight: 'bold' as const,
+        cellWidth: '0.6',
+        cellHeight: null,
+        fontFeatures: [{ tag: 'ss01', value: 1 }],
+        fontAxes: [{ tag: 'wght', value: 200 }],
+        cursorShape: 'vintage' as const,
+        cursorHeight: 50,
+        padding: '8, 8, 8, 8',
+        scrollbarState: 'hidden' as const,
+      },
+    };
+    expect(settingsSchema.parse(customized).terminal).toEqual(customized.terminal);
   });
 });

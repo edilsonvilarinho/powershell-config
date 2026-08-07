@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "ui": {
     "theme": "dark"
   },
@@ -47,6 +47,26 @@
     "fontSize": 11,
     "opacity": 80,
     "useAcrylic": false,
-    "elevate": true
+    "elevate": true,
+    "foreground": null,
+    "background": null,
+    "selectionBackground": null,
+    "fontWeight": null,
+    "cellWidth": null,
+    "cellHeight": null,
+    "fontFeatures": [],
+    "fontAxes": [],
+    "cursorShape": "bar",
+    "cursorColor": null,
+    "cursorHeight": null,
+    "backgroundImagePath": null,
+    "backgroundImageOpacity": null,
+    "backgroundImageStretchMode": null,
+    "backgroundImageAlignment": null,
+    "intenseTextStyle": null,
+    "adjustIndistinguishableColors": null,
+    "retroTerminalEffect": false,
+    "padding": null,
+    "scrollbarState": null
   }
 }

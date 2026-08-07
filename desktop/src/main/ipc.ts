@@ -46,6 +46,7 @@ export function registerIpcHandlers(service: ApplicationService): void {
     if (typeof revision !== 'string') throw new Error('Revisão inválida.');
     return service.restoreLatestBackup(revision);
   });
+  ipcMain.handle(ipcChannels.selectBackgroundImage, () => service.terminalService.selectBackgroundImageWithDialog());
   ipcMain.handle(ipcChannels.openTerminal, () => service.openTerminal());
   ipcMain.handle(ipcChannels.openLogs, () => service.openLogs());
   ipcMain.on(ipcChannels.quit, () => app.quit());

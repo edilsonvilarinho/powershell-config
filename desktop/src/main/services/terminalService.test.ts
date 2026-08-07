@@ -108,4 +108,114 @@ describe('TerminalService', () => {
     const state = JSON.parse(updated as string);
     expect(state.ManagedConfig.ThemeInstalledHash).toBe('PRESERVADO');
   });
+
+  it('escreve os overrides de aparência quando definidos', () => {
+    const paths = createPaths('{}');
+    const service = new TerminalService(paths);
+    const settings = {
+      ...defaultSettings,
+      terminal: {
+        ...defaultSettings.terminal,
+        foreground: '#DCDFE4',
+        background: '#001B26',
+        selectionBackground: '#FFFFFF',
+        cursorColor: '#FF00FF',
+        cursorHeight: 40,
+        padding: '8, 8, 8, 8',
+        scrollbarState: 'hidden' as const,
+      },
+    };
+
+    const updated = service.buildContent(settings);
+
+    expect(updated).toContain('"foreground": "#DCDFE4"');
+    expect(updated).toContain('"background": "#001B26"');
+    expect(updated).toContain('"selectionBackground": "#FFFFFF"');
+    expect(updated).toContain('"cursorColor": "#FF00FF"');
+    expect(updated).toContain('"cursorHeight": 40');
+    expect(updated).toContain('"padding": "8, 8, 8, 8"');
+    expect(updated).toContain('"scrollbarState": "hidden"');
+  });
+
+  it('remove a chave de override quando o campo volta a null e ela já existia', () => {
+    const paths = createPaths('{ "profiles": { "defaults": { "foreground": "#DCDFE4", "opacity": 80 } } }');
+    const service = new TerminalService(paths);
+
+    const updated = service.buildContent(defaultSettings);
+
+    expect(updated).not.toContain('foreground');
+    expect(updated).toContain('"opacity": 80');
+  });
+
+  it('não gera edição indevida quando o campo é null e a chave nunca existiu (idempotência)', () => {
+    const paths = createPaths('{ "profiles": { "defaults": { "opacity": 80 } } }');
+    const service = new TerminalService(paths);
+
+    expect(() => service.buildContent(defaultSettings)).not.toThrow();
+    const updated = service.buildContent(defaultSettings);
+    expect(updated).not.toContain('foreground');
+  });
+
+  it('escreve o efeito retrô como chave única com ponto literal, não como objeto aninhado', () => {
+    const paths = createPaths('{}');
+    const service = new TerminalService(paths);
+    const settings = { ...defaultSettings, terminal: { ...defaultSettings.terminal, retroTerminalEffect: true } };
+
+    const updated = service.buildContent(settings);
+    const parsed = JSON.parse(updated) as { profiles: { defaults: Record<string, unknown> } };
+
+    expect(parsed.profiles.defaults['experimental.retroTerminalEffect']).toBe(true);
+    expect(parsed.profiles.defaults.experimental).toBeUndefined();
+    expect(updated).toContain('"experimental.retroTerminalEffect": true');
+  });
+
+  it('converte fontFeatures/fontAxes de array para objeto e remove quando vazios', () => {
+    const paths = createPaths('{ "profiles": { "defaults": { "font": { "face": "Hack NF", "features": { "liga": 0 } } } } }');
+    const service = new TerminalService(paths);
+    const settings = {
+      ...defaultSettings,
+      terminal: { ...defaultSettings.terminal, fontAxes: [{ tag: 'wght', value: 200 }], fontFeatures: [] },
+    };
+
+    const updated = service.buildContent(settings);
+    const parsed = JSON.parse(updated) as { profiles: { defaults: { font: Record<string, unknown> } } };
+
+    expect(parsed.profiles.defaults.font.axes).toEqual({ wght: 200 });
+    expect(parsed.profiles.defaults.font.features).toBeUndefined();
+  });
+
+  it('getColorSchemeColors retorna as cores de um esquema definido explicitamente no settings.json do usuário', () => {
+    const paths = createPaths('{ "schemes": [{ "name": "Meu Tema", "background": "#001B26", "foreground": "#DCDFE4", "selectionBackground": "#FFFFFF" }] }');
+    const colors = new TerminalService(paths).getColorSchemeColors('Meu Tema');
+    expect(colors).toEqual({ background: '#001B26', foreground: '#DCDFE4', selectionBackground: '#FFFFFF' });
+  });
+
+  it('getColorSchemeColors retorna null para esquema built-in sem entrada explícita em nenhum arquivo', () => {
+    const paths = createPaths('{}');
+    expect(new TerminalService(paths).getColorSchemeColors('Campbell')).toBeNull();
+  });
+
+  it('getColorSchemeColors busca no fragmento gerenciado quando o esquema não está no settings.json do usuário', () => {
+    const paths = createPaths('{}');
+    const fragmentPath = path.join(paths.installRoot, 'powershell-config-fragment.json');
+    fs.writeFileSync(fragmentPath, '{ "schemes": [{ "name": "One Half Dark (modded)", "background": "#0A0A0A", "foreground": "#EEEEEE", "selectionBackground": "#333333" }] }', 'utf8');
+    fs.writeFileSync(paths.statePath, JSON.stringify({ TerminalFragment: { Path: fragmentPath } }), 'utf8');
+
+    const colors = new TerminalService(paths).getColorSchemeColors('One Half Dark (modded)');
+    expect(colors).toEqual({ background: '#0A0A0A', foreground: '#EEEEEE', selectionBackground: '#333333' });
+  });
+
+  it('updateInstallerState grava os novos campos de aparência em ManagedValues', () => {
+    const paths = createPaths('{}');
+    fs.writeFileSync(paths.statePath, JSON.stringify({ Terminal: {}, ManagedConfig: {} }), 'utf8');
+    const service = new TerminalService(paths);
+    const settings = { ...defaultSettings, terminal: { ...defaultSettings.terminal, foreground: '#DCDFE4', cursorShape: 'vintage' as const } };
+
+    const updated = service.updateInstallerState('{}', settings);
+    const state = JSON.parse(updated as string);
+
+    expect(state.Terminal.ManagedValues.foreground).toBe('#DCDFE4');
+    expect(state.Terminal.ManagedValues.cursorShape).toBe('vintage');
+    expect(state.Terminal.ManagedValues['experimental.retroTerminalEffect']).toBe(false);
+  });
 });
