@@ -51,6 +51,7 @@ describe('App', () => {
       restoreLatestBackup: vi.fn(),
       selectBackgroundImage: vi.fn().mockResolvedValue(null),
       selectProfileIcon: vi.fn().mockResolvedValue(null),
+      selectStartingDirectory: vi.fn().mockResolvedValue(null),
       openTerminal: vi.fn(),
       openLogs: vi.fn(),
       quit: vi.fn(),

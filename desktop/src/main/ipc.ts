@@ -48,6 +48,7 @@ export function registerIpcHandlers(service: ApplicationService): void {
   });
   ipcMain.handle(ipcChannels.selectBackgroundImage, () => service.terminalService.selectBackgroundImageWithDialog());
   ipcMain.handle(ipcChannels.selectProfileIcon, () => service.terminalService.selectProfileIconWithDialog());
+  ipcMain.handle(ipcChannels.selectStartingDirectory, () => service.terminalService.selectStartingDirectoryWithDialog());
   ipcMain.handle(ipcChannels.openTerminal, () => service.openTerminal());
   ipcMain.handle(ipcChannels.openLogs, () => service.openLogs());
   ipcMain.on(ipcChannels.quit, () => app.quit());

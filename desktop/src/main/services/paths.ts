@@ -1,6 +1,13 @@
 import { app } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** Diretório deste módulo compilado (`dist/main/main/services`) em runtime. Usado só para localizar
+ * `powershell/` do repo em modo dev não empacotado - `app.getAppPath()` não é confiável para isso:
+ * ao rodar `electron dist/main/main/main.js` diretamente (fluxo de `npm run dev`), o Electron resolve
+ * `getAppPath()` como a pasta do próprio `main.js`, não a raiz de `desktop/`. */
+const currentModuleDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 export interface AppPaths {
   installRoot: string;
@@ -57,8 +64,9 @@ export function createAppPaths(): AppPaths {
       // O diagnóstico de integridade reportará o estado inválido; nenhum caminho não validado é usado.
     }
   }
-  const devBuiltinTheme = path.resolve(app.getAppPath(), '..', 'powershell', 'takuya.omp.json');
-  const devManagedProfile = path.resolve(app.getAppPath(), '..', 'powershell', 'user_profile.ps1');
+  const devRepositoryRoot = path.resolve(currentModuleDirectory, '..', '..', '..', '..', '..');
+  const devBuiltinTheme = path.join(devRepositoryRoot, 'powershell', 'takuya.omp.json');
+  const devManagedProfile = path.join(devRepositoryRoot, 'powershell', 'user_profile.ps1');
   const installedBuiltinTheme = path.join(installRoot, 'takuya.omp.json');
 
   return {
