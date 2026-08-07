@@ -248,6 +248,24 @@ function Merge-TerminalSettings {
             StartingDirectory = Get-PropertySnapshot -Object $defaults -Name 'startingDirectory'
             SuppressApplicationTitle = Get-PropertySnapshot -Object $defaults -Name 'suppressApplicationTitle'
             UseAcrylic = Get-PropertySnapshot -Object $defaults -Name 'useAcrylic'
+            # As chaves abaixo nunca sao escritas por este instalador (somente pelo app desktop).
+            # O snapshot so-leitura existe para permitir rollback simetrico em Restore-TerminalSettings
+            # caso o app venha a adiciona-las depois da instalacao.
+            Foreground = Get-PropertySnapshot -Object $defaults -Name 'foreground'
+            Background = Get-PropertySnapshot -Object $defaults -Name 'background'
+            SelectionBackground = Get-PropertySnapshot -Object $defaults -Name 'selectionBackground'
+            CursorShape = Get-PropertySnapshot -Object $defaults -Name 'cursorShape'
+            CursorColor = Get-PropertySnapshot -Object $defaults -Name 'cursorColor'
+            CursorHeight = Get-PropertySnapshot -Object $defaults -Name 'cursorHeight'
+            BackgroundImage = Get-PropertySnapshot -Object $defaults -Name 'backgroundImage'
+            BackgroundImageOpacity = Get-PropertySnapshot -Object $defaults -Name 'backgroundImageOpacity'
+            BackgroundImageStretchMode = Get-PropertySnapshot -Object $defaults -Name 'backgroundImageStretchMode'
+            BackgroundImageAlignment = Get-PropertySnapshot -Object $defaults -Name 'backgroundImageAlignment'
+            IntenseTextStyle = Get-PropertySnapshot -Object $defaults -Name 'intenseTextStyle'
+            AdjustIndistinguishableColors = Get-PropertySnapshot -Object $defaults -Name 'adjustIndistinguishableColors'
+            RetroTerminalEffect = Get-PropertySnapshot -Object $defaults -Name 'experimental.retroTerminalEffect'
+            Padding = Get-PropertySnapshot -Object $defaults -Name 'padding'
+            ScrollbarState = Get-PropertySnapshot -Object $defaults -Name 'scrollbarState'
         }
         Actions = @()
     }
@@ -324,9 +342,32 @@ function Restore-TerminalSettings {
         startingDirectory = $null
         suppressApplicationTitle = $true
         useAcrylic = $false
+        # Sem valor padrao proprio do instalador (nunca escritas por Merge-TerminalSettings);
+        # $null aqui significa "esperado ausente" ate que ManagedValues (gravado pelo app) diga o contrario.
+        foreground = $null
+        background = $null
+        selectionBackground = $null
+        cursorShape = 'bar'
+        cursorColor = $null
+        cursorHeight = $null
+        backgroundImage = $null
+        backgroundImageOpacity = $null
+        backgroundImageStretchMode = $null
+        backgroundImageAlignment = $null
+        intenseTextStyle = $null
+        adjustIndistinguishableColors = $null
+        'experimental.retroTerminalEffect' = $false
+        padding = $null
+        scrollbarState = $null
     }
+    $managedValueNames = @(
+        'colorScheme', 'elevate', 'font', 'opacity', 'startingDirectory', 'suppressApplicationTitle', 'useAcrylic',
+        'foreground', 'background', 'selectionBackground', 'cursorShape', 'cursorColor', 'cursorHeight',
+        'backgroundImage', 'backgroundImageOpacity', 'backgroundImageStretchMode', 'backgroundImageAlignment',
+        'intenseTextStyle', 'adjustIndistinguishableColors', 'experimental.retroTerminalEffect', 'padding', 'scrollbarState'
+    )
     if ($null -ne $State.PSObject.Properties['ManagedValues'] -and $null -ne $State.ManagedValues) {
-        foreach ($name in @('colorScheme', 'elevate', 'font', 'opacity', 'startingDirectory', 'suppressApplicationTitle', 'useAcrylic')) {
+        foreach ($name in $managedValueNames) {
             $managedProperty = $State.ManagedValues.PSObject.Properties[$name]
             if ($null -ne $managedProperty) {
                 $managedDefaults[$name] = $managedProperty.Value
@@ -341,6 +382,21 @@ function Restore-TerminalSettings {
         startingDirectory = 'StartingDirectory'
         suppressApplicationTitle = 'SuppressApplicationTitle'
         useAcrylic = 'UseAcrylic'
+        foreground = 'Foreground'
+        background = 'Background'
+        selectionBackground = 'SelectionBackground'
+        cursorShape = 'CursorShape'
+        cursorColor = 'CursorColor'
+        cursorHeight = 'CursorHeight'
+        backgroundImage = 'BackgroundImage'
+        backgroundImageOpacity = 'BackgroundImageOpacity'
+        backgroundImageStretchMode = 'BackgroundImageStretchMode'
+        backgroundImageAlignment = 'BackgroundImageAlignment'
+        intenseTextStyle = 'IntenseTextStyle'
+        adjustIndistinguishableColors = 'AdjustIndistinguishableColors'
+        'experimental.retroTerminalEffect' = 'RetroTerminalEffect'
+        padding = 'Padding'
+        scrollbarState = 'ScrollbarState'
     }
     foreach ($name in $managedDefaults.Keys) {
         $currentProperty = $defaults.PSObject.Properties[$name]
