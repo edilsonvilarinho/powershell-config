@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "ui": {
     "theme": "dark"
   },
@@ -68,5 +68,6 @@
     "retroTerminalEffect": false,
     "padding": null,
     "scrollbarState": null
-  }
+  },
+  "terminalProfiles": []
 }
