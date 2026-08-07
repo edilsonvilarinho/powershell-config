@@ -146,18 +146,8 @@ export class ApplicationService {
       ...requested,
       prompt: { ...requested.prompt, themeName: selectedTheme.name },
     });
-    if (!this.terminalService.listColorSchemes().includes(nextSettings.terminal.colorScheme)) {
-      throw new Error(
-        `O esquema de cores "${nextSettings.terminal.colorScheme}" não foi encontrado no Windows Terminal. ` +
-          'Isso costuma indicar que a instalação foi interrompida antes de concluir a configuração do Terminal. ' +
-          'Reabra o instalador do PowerShell Config para reparar a configuração; se persistir, escolha outro esquema de cores.',
-      );
-    }
-
-    const backgroundImagePath = nextSettings.terminal.backgroundImagePath;
-    if (backgroundImagePath && backgroundImagePath !== 'desktopWallpaper' && !fs.existsSync(backgroundImagePath)) {
-      throw new Error(`A imagem de fundo "${backgroundImagePath}" não foi encontrada. Escolha outro arquivo.`);
-    }
+    this.validateTerminalDefaults(nextSettings);
+    this.validateTerminalProfiles(nextSettings);
 
     await this.themeService.preview(nextSettings.prompt.themeId);
     await this.validateManagedProfileSyntax();
@@ -165,7 +155,10 @@ export class ApplicationService {
     await this.validateGeneratedProfileSyntax(nextCustomProfileContent);
     const nextSettingsContent = this.settingsService.serialize(nextSettings);
     const nextThemeContent = this.themeService.readTheme(nextSettings.prompt.themeId);
-    const nextTerminalContent = this.terminalService.buildContent(nextSettings);
+    const nextTerminalContent = this.terminalService.buildContent(
+      nextSettings,
+      currentSettings.terminalProfiles.map((profile) => profile.guid),
+    );
     const nextStateContent = this.terminalService.updateInstallerState(nextTerminalContent, nextSettings, nextThemeContent);
     const backupRoot = path.join(this.paths.backupDirectory, new Date().toISOString().replace(/[:.]/g, '-'));
     ensureDirectory(backupRoot);
@@ -418,15 +411,46 @@ export class ApplicationService {
       })),
     ]);
     if (validation.issues[0]) throw new Error(`Customização importada inválida: ${validation.issues[0].message}`);
+    this.validateTerminalDefaults(settings, { imported: true });
+    this.validateTerminalProfiles(settings, { imported: true });
+    await this.validateManagedProfileSyntax();
+    await this.validateGeneratedProfileSyntax(buildCustomProfile(settings));
+  }
+
+  private validateTerminalDefaults(settings: AppSettings, options?: { imported?: boolean }): void {
+    const prefix = options?.imported ? ' importado' : '';
     if (!this.terminalService.listColorSchemes().includes(settings.terminal.colorScheme)) {
       throw new Error(
-        `O esquema de cores importado "${settings.terminal.colorScheme}" não foi encontrado no Windows Terminal. ` +
+        `O esquema de cores${prefix} "${settings.terminal.colorScheme}" não foi encontrado no Windows Terminal. ` +
           'Isso costuma indicar que a instalação foi interrompida antes de concluir a configuração do Terminal. ' +
           'Reabra o instalador do PowerShell Config para reparar a configuração; se persistir, escolha outro esquema de cores.',
       );
     }
-    await this.validateManagedProfileSyntax();
-    await this.validateGeneratedProfileSyntax(buildCustomProfile(settings));
+    const backgroundImagePath = settings.terminal.backgroundImagePath;
+    if (backgroundImagePath && backgroundImagePath !== 'desktopWallpaper' && !fs.existsSync(backgroundImagePath)) {
+      throw new Error(`A imagem de fundo${prefix} "${backgroundImagePath}" não foi encontrada. Escolha outro arquivo.`);
+    }
+  }
+
+  private validateTerminalProfiles(settings: AppSettings, options?: { imported?: boolean }): void {
+    const prefix = options?.imported ? ' importado' : '';
+    const colorSchemes = this.terminalService.listColorSchemes();
+    for (const profile of settings.terminalProfiles) {
+      const { appearance, icon } = profile;
+      if (appearance.colorScheme !== null && !colorSchemes.includes(appearance.colorScheme)) {
+        throw new Error(
+          `O esquema de cores${prefix} "${appearance.colorScheme}" do perfil "${profile.name}" não foi encontrado no Windows Terminal. ` +
+            'Reabra o instalador do PowerShell Config para reparar a configuração; se persistir, escolha outro esquema de cores.',
+        );
+      }
+      const backgroundImagePath = appearance.backgroundImagePath;
+      if (backgroundImagePath && backgroundImagePath !== 'desktopWallpaper' && !fs.existsSync(backgroundImagePath)) {
+        throw new Error(`A imagem de fundo${prefix} "${backgroundImagePath}" do perfil "${profile.name}" não foi encontrada. Escolha outro arquivo.`);
+      }
+      if (icon && icon.kind === 'file' && !fs.existsSync(icon.path)) {
+        throw new Error(`O ícone${prefix} "${icon.path}" do perfil "${profile.name}" não foi encontrado. Escolha outro arquivo.`);
+      }
+    }
   }
 
   private clearExpiredImports(): void {

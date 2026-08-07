@@ -9,7 +9,7 @@ if (Test-Path -LiteralPath $powerShellConfigSettingsPath) {
     try {
         $powerShellConfigSettings = Get-Content -LiteralPath $powerShellConfigSettingsPath -Raw -Encoding UTF8 |
             ConvertFrom-Json -ErrorAction Stop
-        if ($powerShellConfigSettings.schemaVersion -notin @(1, 2, 3, 4)) {
+        if ($powerShellConfigSettings.schemaVersion -notin @(1, 2, 3, 4, 5)) {
             $powerShellConfigSettings = $null
         }
     } catch {

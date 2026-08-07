@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultSettings, migrateSettings, settingsSchema } from './settings.js';
+import { defaultSettings, emptyTerminalProfileAdvanced, emptyTerminalProfileAppearance, migrateSettings, settingsSchema } from './settings.js';
 
 describe('settingsSchema', () => {
   it('aceita os padrões versionados', () => {
@@ -26,14 +26,14 @@ describe('settingsSchema', () => {
     delete legacyV1.help;
     delete legacyV1.customizations;
     const migrated = migrateSettings(legacyV1);
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.help).toEqual(defaultSettings.help);
     expect(migrated.aliases).toEqual(defaultSettings.aliases);
     expect(migrated.customizations).toEqual(defaultSettings.customizations);
   });
 
   it('rejeita versão desconhecida em vez de presumir migração', () => {
-    expect(() => migrateSettings({ ...defaultSettings, schemaVersion: 5 })).toThrow(/não suportada/);
+    expect(() => migrateSettings({ ...defaultSettings, schemaVersion: 6 })).toThrow(/não suportada/);
   });
 
   it('aceita customizações versionadas e limita aliases a nomes de comando', () => {
@@ -103,7 +103,7 @@ describe('settingsSchema', () => {
     };
 
     const migrated = migrateSettings(legacyV2);
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.customizations.aliases[0].description).toBe('');
     expect(migrated.customizations.functions[0].description).toBe('');
     expect(() => settingsSchema.parse(migrated)).toThrow(/descrição/);
@@ -145,7 +145,7 @@ describe('settingsSchema', () => {
     delete terminalV3.scrollbarState;
 
     const migrated = migrateSettings(legacyV3);
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.terminal.foreground).toBeNull();
     expect(migrated.terminal.background).toBeNull();
     expect(migrated.terminal.selectionBackground).toBeNull();
@@ -153,6 +153,64 @@ describe('settingsSchema', () => {
     expect(migrated.terminal.retroTerminalEffect).toBe(false);
     expect(migrated.terminal.fontFeatures).toEqual([]);
     expect(migrated.terminal.fontAxes).toEqual([]);
+  });
+
+  it('migra settings v4 injetando terminalProfiles vazio', () => {
+    const legacyV4 = structuredClone(defaultSettings) as unknown as Record<string, unknown>;
+    legacyV4.schemaVersion = 4;
+    delete legacyV4.terminalProfiles;
+
+    const migrated = migrateSettings(legacyV4);
+    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.terminalProfiles).toEqual([]);
+  });
+
+  it('rejeita perfis de terminal com id, guid ou nome duplicados', () => {
+    const base = defaultSettings;
+    const profile = {
+      id: 'perfil-1',
+      guid: '{11111111-1111-1111-1111-111111111111}',
+      name: 'Dev Shell',
+      commandline: null,
+      startingDirectory: null,
+      icon: null,
+      tabTitle: null,
+      elevate: false,
+      hidden: false,
+      appearance: { ...emptyTerminalProfileAppearance },
+      advanced: { ...emptyTerminalProfileAdvanced },
+    };
+    expect(settingsSchema.parse({ ...base, terminalProfiles: [profile] }).terminalProfiles).toHaveLength(1);
+    expect(() => settingsSchema.parse({
+      ...base,
+      terminalProfiles: [profile, { ...profile, guid: '{22222222-2222-2222-2222-222222222222}' }],
+    })).toThrow(/identificador de perfil duplicado|id/i);
+    expect(() => settingsSchema.parse({
+      ...base,
+      terminalProfiles: [profile, { ...profile, id: 'perfil-2' }],
+    })).toThrow(/guid/i);
+    expect(() => settingsSchema.parse({
+      ...base,
+      terminalProfiles: [profile, { ...profile, id: 'perfil-2', guid: '{22222222-2222-2222-2222-222222222222}' }],
+    })).toThrow(/já está em uso/);
+  });
+
+  it('rejeita guid de perfil fora do formato do Windows Terminal', () => {
+    const base = defaultSettings;
+    const profile = {
+      id: 'perfil-1',
+      guid: 'nao-e-guid',
+      name: 'Dev Shell',
+      commandline: null,
+      startingDirectory: null,
+      icon: null,
+      tabTitle: null,
+      elevate: false,
+      hidden: false,
+      appearance: { ...emptyTerminalProfileAppearance },
+      advanced: { ...emptyTerminalProfileAdvanced },
+    };
+    expect(() => settingsSchema.parse({ ...base, terminalProfiles: [profile] })).toThrow(/GUID/);
   });
 
   it('rejeita formatos inválidos nos novos campos de aparência do terminal', () => {

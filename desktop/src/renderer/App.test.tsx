@@ -50,6 +50,7 @@ describe('App', () => {
       restoreDefaults: vi.fn(),
       restoreLatestBackup: vi.fn(),
       selectBackgroundImage: vi.fn().mockResolvedValue(null),
+      selectProfileIcon: vi.fn().mockResolvedValue(null),
       openTerminal: vi.fn(),
       openLogs: vi.fn(),
       quit: vi.fn(),
@@ -66,7 +67,7 @@ describe('App', () => {
     expect(await screen.findByText('Seu PowerShell, sob controle.')).toBeInTheDocument();
     expect(screen.getByText('7.5.2')).toBeInTheDocument();
     expect(screen.getByText('29.11.0')).toBeInTheDocument();
-    expect(screen.getByText(/schema v4 válido/)).toBeInTheDocument();
+    expect(screen.getByText(/schema v5 válido/)).toBeInTheDocument();
   });
 
   it('renderiza as cinco telas principais pela navegação lateral', async () => {
@@ -112,6 +113,29 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Escolher arquivo...' }));
     await waitFor(() => expect(api.selectBackgroundImage).toHaveBeenCalled());
     expect(await screen.findByText('C:\\imagens\\fundo.png')).toBeInTheDocument();
+  });
+
+  it('cria, edita e apaga um perfil na sub-aba Perfis do Windows Terminal', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    installApi();
+    render(<App />);
+    await screen.findByText('Seu PowerShell, sob controle.');
+    fireEvent.click(screen.getByRole('button', { name: /Windows Terminal$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Perfis/ }));
+
+    expect(screen.getByText('Nenhum perfil gerenciado pelo app ainda.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Adicionar perfil' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Novo perfil vazio' }));
+
+    const nameInput = await screen.findByDisplayValue('Novo perfil');
+    fireEvent.change(nameInput, { target: { value: 'TRABALHO' } });
+    expect(screen.getByRole('button', { name: 'TRABALHO' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'TRABALHO' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apagar perfil' }));
+    expect(window.confirm).toHaveBeenCalled();
+    expect(screen.getByText('Nenhum perfil gerenciado pelo app ainda.')).toBeInTheDocument();
   });
 
   it('navega para configurações e alterna para o tema claro no rascunho', async () => {

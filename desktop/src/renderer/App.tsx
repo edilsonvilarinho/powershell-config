@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { settingsSchema, type AppSettings, type BootstrapData, type Diagnostics, type ImportPreview, type TerminalColorSchemeColors, type ThemeInfo, type UserState } from '../shared/settings';
 import { buildHelpPreview } from '../shared/help';
 import { Customizations, type CustomizationDisplayIssue } from './Customizations';
+import { Status, Toggle, Field, ColorOverrideField, TerminalPreview, TagValueListEditor } from './ui';
+import { TerminalProfilesSection, TerminalAppearanceFields, terminalDefaultsAsAppearance } from './TerminalProfiles';
 
 type Section = 'overview' | 'themes' | 'profile' | 'terminal' | 'settings';
 
@@ -54,105 +56,6 @@ function userErrorMessage(error: unknown): string {
     }
   }
   return text.replace(/^Error:\s*/i, '') || 'Ocorreu um erro inesperado. Consulte os logs.';
-}
-
-function Status({ ok, children }: { ok: boolean; children: React.ReactNode }) {
-  return <span className={`status ${ok ? 'ok' : 'error'}`}><span aria-hidden="true">●</span>{children}</span>;
-}
-
-function Toggle({ checked, onChange, label, description }: { checked: boolean; onChange: (value: boolean) => void; label: string; description?: string }) {
-  return (
-    <label className="toggle-row">
-      <span><strong>{label}</strong>{description && <small>{description}</small>}</span>
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-    </label>
-  );
-}
-
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
-  return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
-}
-
-function ColorOverrideField({ label, hint, value, fallback, onChange }: {
-  label: string;
-  hint: string;
-  value: string | null;
-  fallback: string | null;
-  onChange: (value: string | null) => void;
-}) {
-  const effective = value ?? fallback ?? '#000000';
-  return (
-    <div className="color-override">
-      <div className="color-override-label"><strong>{label}</strong><small>{hint}</small></div>
-      <div className="color-override-controls">
-        <input type="color" value={effective} onChange={(event) => onChange(event.target.value)} />
-        <input
-          type="text"
-          className="color-hex"
-          value={value ?? ''}
-          placeholder={fallback ?? 'Herdado do esquema'}
-          maxLength={7}
-          onChange={(event) => onChange(event.target.value.trim() || null)}
-        />
-        <button
-          type="button"
-          className="secondary compact"
-          disabled={value === null}
-          aria-label={`Restaurar ${label.toLowerCase()} para o padrão do esquema`}
-          onClick={() => onChange(null)}
-        >↺</button>
-      </div>
-    </div>
-  );
-}
-
-function TerminalPreview({ fontFace, fontSize, foreground, background, selectionBackground }: {
-  fontFace: string;
-  fontSize: number;
-  foreground: string | null;
-  background: string | null;
-  selectionBackground: string | null;
-}) {
-  return (
-    <div
-      className="terminal-preview"
-      style={{ background: background ?? '#0c0c0c', color: foreground ?? '#cccccc', fontFamily: fontFace, fontSize: `${fontSize}px` }}
-    >
-      <div>Windows Terminal</div>
-      <div>C:\&gt; git status</div>
-      <div>On branch <span className="terminal-preview-selection" style={{ background: selectionBackground ?? '#264f78' }}>master</span></div>
-    </div>
-  );
-}
-
-function TagValueListEditor({ label, hint, entries, onChange }: {
-  label: string;
-  hint: string;
-  entries: Array<{ tag: string; value: number }>;
-  onChange: (entries: Array<{ tag: string; value: number }>) => void;
-}) {
-  return (
-    <div className="tag-value-editor">
-      <div className="tag-value-editor-header"><strong>{label}</strong><small>{hint}</small></div>
-      {entries.map((entry, index) => (
-        <div className="tag-value-row" key={index}>
-          <input
-            maxLength={4}
-            value={entry.tag}
-            placeholder="wght"
-            onChange={(event) => onChange(entries.map((item, i) => i === index ? { ...item, tag: event.target.value } : item))}
-          />
-          <input
-            type="number"
-            value={entry.value}
-            onChange={(event) => onChange(entries.map((item, i) => i === index ? { ...item, value: Number(event.target.value) } : item))}
-          />
-          <button type="button" className="secondary compact" onClick={() => onChange(entries.filter((_, i) => i !== index))}>Remover</button>
-        </div>
-      ))}
-      <button type="button" className="secondary compact" onClick={() => onChange([...entries, { tag: '', value: 0 }])}>Adicionar</button>
-    </div>
-  );
 }
 
 function DiagnosticCard({ title, value, ok }: { title: string; value: string; ok: boolean }) {
@@ -279,172 +182,51 @@ function Profile({ draft, onDraft, nativeAliases, issues }: { draft: AppSettings
   );
 }
 
+type TerminalTab = 'defaults' | 'profiles';
+
 function TerminalSettings({ draft, onDraft, schemes, activeColorSchemeColors }: {
   draft: AppSettings;
   onDraft: (settings: AppSettings) => void;
   schemes: string[];
   activeColorSchemeColors: TerminalColorSchemeColors | null;
 }) {
-  const [colorPanelOpen, setColorPanelOpen] = useState(false);
-  const [axesPanelOpen, setAxesPanelOpen] = useState(false);
-  const [featuresPanelOpen, setFeaturesPanelOpen] = useState(false);
-  const [backgroundImageBusy, setBackgroundImageBusy] = useState(false);
-
+  const [tab, setTab] = useState<TerminalTab>('defaults');
   const t = draft.terminal;
   const setTerminal = (key: keyof AppSettings['terminal'], value: unknown) => onDraft(setNested(draft, 'terminal', key, value));
 
-  const chooseBackgroundImage = async (): Promise<void> => {
-    setBackgroundImageBusy(true);
-    try {
-      const selected = await window.powershellConfig.selectBackgroundImage();
-      if (selected) setTerminal('backgroundImagePath', selected);
-    } finally {
-      setBackgroundImageBusy(false);
-    }
-  };
-
   return (
-    <section><header className="page-header"><div><p className="eyebrow">WINDOWS TERMINAL</p><h1>Aparência sem substituir seu JSON.</h1><p>Somente propriedades gerenciadas são alteradas; comentários e campos desconhecidos são preservados.</p></div></header>
+    <section>
+      <header className="page-header"><div><p className="eyebrow">WINDOWS TERMINAL</p><h1>Aparência sem substituir seu JSON.</h1><p>Somente propriedades gerenciadas são alteradas; comentários e campos desconhecidos são preservados.</p></div></header>
 
-      <article className="panel form-panel">
-        <h2>Texto</h2>
-        <div className="form-grid terminal-fields">
-          <Field label="Esquema de cores"><select value={t.colorScheme} onChange={(event) => setTerminal('colorScheme', event.target.value)}>{schemes.map((scheme) => <option key={scheme}>{scheme}</option>)}</select></Field>
-          <Field label="Fonte"><input value={t.fontFace} maxLength={128} onChange={(event) => setTerminal('fontFace', event.target.value)} /></Field>
-          <Field label="Tamanho"><input type="number" min="6" max="72" step="0.5" value={t.fontSize} onChange={(event) => setTerminal('fontSize', Number(event.target.value))} /></Field>
-          <Field label="Espessura da fonte"><select value={typeof t.fontWeight === 'string' ? t.fontWeight : t.fontWeight === null ? '' : 'custom'} onChange={(event) => setTerminal('fontWeight', event.target.value === '' ? null : event.target.value === 'custom' ? 400 : event.target.value)}>
-            <option value="">Padrão do Terminal</option>
-            {['thin', 'extra-light', 'light', 'semi-light', 'normal', 'medium', 'semi-bold', 'bold', 'extra-bold', 'black', 'extra-black'].map((weight) => <option key={weight} value={weight}>{weight}</option>)}
-            <option value="custom">Personalizado (100-990)</option>
-          </select></Field>
-          {typeof t.fontWeight === 'number' && <Field label="Peso personalizado"><input type="number" min="100" max="990" step="10" value={t.fontWeight} onChange={(event) => setTerminal('fontWeight', Number(event.target.value))} /></Field>}
-          <Field label="Largura da célula" hint="Ex.: 0.6. Vazio usa o padrão da fonte."><input value={t.cellWidth ?? ''} placeholder="auto" onChange={(event) => setTerminal('cellWidth', event.target.value.trim() || null)} /></Field>
-          <Field label="Altura da linha" hint="Ex.: 1.2. Vazio usa o padrão da fonte."><input value={t.cellHeight ?? ''} placeholder="auto" onChange={(event) => setTerminal('cellHeight', event.target.value.trim() || null)} /></Field>
-        </div>
+      <div className="segmented terminal-subnav">
+        <button className={tab === 'defaults' ? 'active' : ''} onClick={() => setTab('defaults')}>Padrões</button>
+        <button className={tab === 'profiles' ? 'active' : ''} onClick={() => setTab('profiles')}>Perfis{draft.terminalProfiles.length > 0 ? ` (${draft.terminalProfiles.length})` : ''}</button>
+      </div>
 
-        <div className={`collapsible-panel ${colorPanelOpen ? 'expanded' : ''}`}>
-          <button type="button" className="collapsible-header" aria-expanded={colorPanelOpen} aria-controls="terminal-color-overrides" onClick={() => setColorPanelOpen((open) => !open)}>
-            <span><strong>Substituir cores do esquema</strong><small>Expanda para substituir o primeiro plano, a tela de fundo e a tela de fundo da seleção.</small></span>
-            <i aria-hidden="true">{colorPanelOpen ? '▲' : '▼'}</i>
-          </button>
-          {colorPanelOpen && <div className="collapsible-body" id="terminal-color-overrides">
-            <div className="form-grid terminal-fields">
-              <ColorOverrideField label="Primeiro plano" hint="Substitui a cor de primeiro plano do esquema de cores." value={t.foreground} fallback={activeColorSchemeColors?.foreground ?? null} onChange={(value) => setTerminal('foreground', value)} />
-              <ColorOverrideField label="Tela de fundo" hint="Substitui a cor da tela de fundo do esquema de cores." value={t.background} fallback={activeColorSchemeColors?.background ?? null} onChange={(value) => setTerminal('background', value)} />
-              <ColorOverrideField label="Seleção de tela de fundo" hint="Substitui a cor da tela de fundo da seleção do esquema de cores." value={t.selectionBackground} fallback={activeColorSchemeColors?.selectionBackground ?? null} onChange={(value) => setTerminal('selectionBackground', value)} />
-            </div>
-            <TerminalPreview
-              fontFace={t.fontFace}
-              fontSize={t.fontSize}
-              foreground={t.foreground ?? activeColorSchemeColors?.foreground ?? null}
-              background={t.background ?? activeColorSchemeColors?.background ?? null}
-              selectionBackground={t.selectionBackground ?? activeColorSchemeColors?.selectionBackground ?? null}
-            />
-          </div>}
-        </div>
+      {tab === 'defaults' && (
+        <>
+          <TerminalAppearanceFields
+            values={terminalDefaultsAsAppearance(t)}
+            onChange={(key, value) => setTerminal(key as keyof AppSettings['terminal'], value)}
+            schemes={schemes}
+            effectiveColors={activeColorSchemeColors}
+            mode="defaults"
+          />
+          <article className="panel form-panel">
+            <h2>Elevação</h2>
+            <Toggle checked={t.elevate} onChange={(value) => setTerminal('elevate', value)} label="Abrir perfis elevados" description="Mantém o comportamento atual de solicitar UAC." />
+          </article>
+        </>
+      )}
 
-        <div className={`collapsible-panel ${axesPanelOpen ? 'expanded' : ''}`}>
-          <button type="button" className="collapsible-header" aria-expanded={axesPanelOpen} aria-controls="terminal-font-axes" onClick={() => setAxesPanelOpen((open) => !open)}>
-            <span><strong>Eixos de fonte variáveis</strong><small>Ajusta eixos DWrite da fonte (ex.: "wght").</small></span>
-            <i aria-hidden="true">{axesPanelOpen ? '▲' : '▼'}</i>
-          </button>
-          {axesPanelOpen && <div className="collapsible-body" id="terminal-font-axes">
-            <TagValueListEditor label="Eixos" hint="4 caracteres ASCII (ex.: wght) e valor numérico." entries={t.fontAxes} onChange={(entries) => setTerminal('fontAxes', entries)} />
-          </div>}
-        </div>
-
-        <div className={`collapsible-panel ${featuresPanelOpen ? 'expanded' : ''}`}>
-          <button type="button" className="collapsible-header" aria-expanded={featuresPanelOpen} aria-controls="terminal-font-features" onClick={() => setFeaturesPanelOpen((open) => !open)}>
-            <span><strong>Recursos de fonte</strong><small>Ativa/desativa recursos OpenType (ex.: "ss01", "liga").</small></span>
-            <i aria-hidden="true">{featuresPanelOpen ? '▲' : '▼'}</i>
-          </button>
-          {featuresPanelOpen && <div className="collapsible-body" id="terminal-font-features">
-            <TagValueListEditor label="Recursos" hint="4 caracteres ASCII e 0 (desativado) ou 1 (ativado)." entries={t.fontFeatures} onChange={(entries) => setTerminal('fontFeatures', entries)} />
-          </div>}
-        </div>
-      </article>
-
-      <article className="panel form-panel">
-        <h2>Cursor</h2>
-        <div className="form-grid terminal-fields">
-          <Field label="Forma do cursor"><select value={t.cursorShape} onChange={(event) => setTerminal('cursorShape', event.target.value)}>
-            <option value="bar">Barra ( | )</option>
-            <option value="doubleUnderscore">Sublinhado duplo ( ‗ )</option>
-            <option value="emptyBox">Caixa vazia ( ▯ )</option>
-            <option value="filledBox">Caixa preenchida ( █ )</option>
-            <option value="underscore">Sublinhado ( ▁ )</option>
-            <option value="vintage">Vintage ( ▃ )</option>
-          </select></Field>
-          {t.cursorShape === 'vintage' && <Field label="Altura do cursor" hint="1-100, só se aplica à forma vintage."><input type="number" min="1" max="100" value={t.cursorHeight ?? 25} onChange={(event) => setTerminal('cursorHeight', Number(event.target.value))} /></Field>}
-        </div>
-        <ColorOverrideField label="Cor do cursor" hint="Substitui a cor do cursor do esquema de cores." value={t.cursorColor} fallback={null} onChange={(value) => setTerminal('cursorColor', value)} />
-      </article>
-
-      <article className="panel form-panel">
-        <h2>Imagem da tela de fundo</h2>
-        <div className="form-grid terminal-fields">
-          <Field label="Caminho da imagem"><span className="readonly-value">{t.backgroundImagePath === 'desktopWallpaper' ? 'Papel de parede da área de trabalho' : t.backgroundImagePath ?? 'Nenhum'}</span></Field>
-        </div>
-        <div className="button-row">
-          <button type="button" className="secondary compact" disabled={backgroundImageBusy} onClick={() => void chooseBackgroundImage()}>Escolher arquivo...</button>
-          <button type="button" className="secondary compact" onClick={() => setTerminal('backgroundImagePath', 'desktopWallpaper')}>Usar papel de parede da área de trabalho</button>
-          <button type="button" className="secondary compact" disabled={t.backgroundImagePath === null} onClick={() => setTerminal('backgroundImagePath', null)}>Remover</button>
-        </div>
-        {t.backgroundImagePath && <div className="form-grid terminal-fields">
-          <Field label={`Opacidade da imagem: ${Math.round((t.backgroundImageOpacity ?? 1) * 100)}%`}><input type="range" min="0" max="100" value={Math.round((t.backgroundImageOpacity ?? 1) * 100)} onChange={(event) => setTerminal('backgroundImageOpacity', Number(event.target.value) / 100)} /></Field>
-          <Field label="Ajuste da imagem"><select value={t.backgroundImageStretchMode ?? 'uniformToFill'} onChange={(event) => setTerminal('backgroundImageStretchMode', event.target.value)}>
-            <option value="fill">Preencher</option>
-            <option value="none">Nenhum</option>
-            <option value="uniform">Uniforme</option>
-            <option value="uniformToFill">Uniforme para preencher</option>
-          </select></Field>
-          <Field label="Alinhamento da imagem"><select value={t.backgroundImageAlignment ?? 'center'} onChange={(event) => setTerminal('backgroundImageAlignment', event.target.value)}>
-            {['center', 'left', 'right', 'top', 'bottom', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'].map((alignment) => <option key={alignment} value={alignment}>{alignment}</option>)}
-          </select></Field>
-        </div>}
-      </article>
-
-      <article className="panel form-panel">
-        <h2>Formatação de Texto</h2>
-        <div className="form-grid terminal-fields">
-          <Field label="Estilo de texto intenso"><select value={t.intenseTextStyle ?? ''} onChange={(event) => setTerminal('intenseTextStyle', event.target.value || null)}>
-            <option value="">Padrão do Terminal</option>
-            <option value="none">Nenhum</option>
-            <option value="bold">Negrito</option>
-            <option value="bright">Cores brilhantes</option>
-            <option value="all">Negrito e cores brilhantes</option>
-          </select></Field>
-          <Field label="Ajustar cores indistinguíveis"><select value={t.adjustIndistinguishableColors ?? ''} onChange={(event) => setTerminal('adjustIndistinguishableColors', event.target.value || null)}>
-            <option value="">Padrão do Terminal</option>
-            <option value="never">Nunca</option>
-            <option value="indexed">Somente cores do esquema</option>
-            <option value="always">Sempre</option>
-          </select></Field>
-        </div>
-        <Toggle checked={t.retroTerminalEffect} onChange={(value) => setTerminal('retroTerminalEffect', value)} label="Efeito de terminal retrô" description="Mostra efeitos de estilo retrô, como texto brilhante e linhas de digitalização." />
-      </article>
-
-      <article className="panel form-panel">
-        <h2>Transparência</h2>
-        <div className="form-grid terminal-fields">
-          <Field label={`Opacidade: ${t.opacity}%`} hint="0 é transparente; 100 é opaco."><input type="range" min="0" max="100" value={t.opacity} onChange={(event) => setTerminal('opacity', Number(event.target.value))} /></Field>
-        </div>
-        <Toggle checked={t.useAcrylic} onChange={(value) => setTerminal('useAcrylic', value)} label="Usar material acrílico" />
-        <Toggle checked={t.elevate} onChange={(value) => setTerminal('elevate', value)} label="Abrir perfis elevados" description="Mantém o comportamento atual de solicitar UAC." />
-      </article>
-
-      <article className="panel form-panel">
-        <h2>Janela</h2>
-        <div className="form-grid terminal-fields">
-          <Field label="Preenchimento" hint='Formatos: "N", "N, N" ou "N, N, N, N". Vazio usa "8, 8, 8, 8".'><input value={t.padding ?? ''} placeholder="8, 8, 8, 8" onChange={(event) => setTerminal('padding', event.target.value.trim() || null)} /></Field>
-          <Field label="Visibilidade da barra de rolagem"><select value={t.scrollbarState ?? ''} onChange={(event) => setTerminal('scrollbarState', event.target.value || null)}>
-            <option value="">Padrão do Terminal</option>
-            <option value="visible">Visível</option>
-            <option value="hidden">Oculta</option>
-            <option value="always">Sempre</option>
-          </select></Field>
-        </div>
-      </article>
+      {tab === 'profiles' && (
+        <TerminalProfilesSection
+          profiles={draft.terminalProfiles}
+          onChange={(profiles) => onDraft({ ...draft, terminalProfiles: profiles })}
+          schemes={schemes}
+          activeColorSchemeColors={activeColorSchemeColors}
+        />
+      )}
     </section>
   );
 }

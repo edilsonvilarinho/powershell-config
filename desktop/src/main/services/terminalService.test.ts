@@ -2,12 +2,29 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultSettings } from '../../shared/settings.js';
+import { defaultSettings, emptyTerminalProfileAdvanced, emptyTerminalProfileAppearance, type TerminalProfileConfig } from '../../shared/settings.js';
 import type { AppPaths } from './paths.js';
 import { sha256 } from './fileService.js';
 import { TerminalService } from './terminalService.js';
 
 const temporaryDirectories: string[] = [];
+
+function makeProfile(overrides: Partial<TerminalProfileConfig> = {}): TerminalProfileConfig {
+  return {
+    id: 'perfil-1',
+    guid: '{11111111-1111-1111-1111-111111111111}',
+    name: 'Dev Shell',
+    commandline: null,
+    startingDirectory: null,
+    icon: null,
+    tabTitle: null,
+    elevate: false,
+    hidden: false,
+    appearance: { ...emptyTerminalProfileAppearance },
+    advanced: { ...emptyTerminalProfileAdvanced },
+    ...overrides,
+  };
+}
 
 function createPaths(content: string): AppPaths {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'powershell-config-terminal-'));
@@ -217,5 +234,154 @@ describe('TerminalService', () => {
     expect(state.Terminal.ManagedValues.foreground).toBe('#DCDFE4');
     expect(state.Terminal.ManagedValues.cursorShape).toBe('vintage');
     expect(state.Terminal.ManagedValues['experimental.retroTerminalEffect']).toBe(false);
+  });
+
+  describe('profiles.list (perfis múltiplos)', () => {
+    it('insere um perfil novo no fim de profiles.list quando o arquivo ainda não tem a chave', () => {
+      const paths = createPaths('{}');
+      const service = new TerminalService(paths);
+      const settings = { ...defaultSettings, terminalProfiles: [makeProfile({ name: 'TRABALHO', commandline: 'pwsh.exe -NoExit' })] };
+
+      const updated = service.buildContent(settings, []);
+      const parsed = JSON.parse(updated) as { profiles: { list: Array<Record<string, unknown>> } };
+
+      expect(parsed.profiles.list).toHaveLength(1);
+      expect(parsed.profiles.list[0].guid).toBe('{11111111-1111-1111-1111-111111111111}');
+      expect(parsed.profiles.list[0].name).toBe('TRABALHO');
+      expect(parsed.profiles.list[0].commandline).toBe('pwsh.exe -NoExit');
+    });
+
+    it('preserva perfis nativos/dinâmicos preexistentes (WSL/Git Bash) ao inserir um perfil novo', () => {
+      const paths = createPaths(`{
+        "profiles": {
+          "defaults": { "opacity": 80 },
+          "list": [
+            { "guid": "{wsl-guid}", "name": "Ubuntu-20.04", "source": "Windows.Terminal.Wsl" },
+            { "guid": "{gitbash-guid}", "name": "Git Bash" }
+          ]
+        }
+      }`);
+      const service = new TerminalService(paths);
+      const settings = { ...defaultSettings, terminalProfiles: [makeProfile()] };
+
+      const updated = service.buildContent(settings, []);
+      const parsed = JSON.parse(updated) as { profiles: { list: Array<Record<string, unknown>> } };
+
+      expect(parsed.profiles.list).toHaveLength(3);
+      expect(parsed.profiles.list[0].name).toBe('Ubuntu-20.04');
+      expect(parsed.profiles.list[0].source).toBe('Windows.Terminal.Wsl');
+      expect(parsed.profiles.list[1].name).toBe('Git Bash');
+      expect(parsed.profiles.list[2].guid).toBe('{11111111-1111-1111-1111-111111111111}');
+    });
+
+    it('atualiza um perfil existente campo a campo sem afetar os demais perfis geridos', () => {
+      const paths = createPaths('{}');
+      const service = new TerminalService(paths);
+      const other = makeProfile({ id: 'perfil-2', guid: '{22222222-2222-2222-2222-222222222222}', name: 'Outro' });
+      const first = makeProfile({ name: 'Nome original' });
+
+      const afterCreate = service.buildContent({ ...defaultSettings, terminalProfiles: [first, other] }, []);
+      fs.writeFileSync(paths.terminalSettingsPath, afterCreate, 'utf8');
+
+      const renamed = { ...first, name: 'Nome renomeado' };
+      const updated = service.buildContent(
+        { ...defaultSettings, terminalProfiles: [renamed, other] },
+        [first.guid, other.guid],
+      );
+      const parsed = JSON.parse(updated) as { profiles: { list: Array<Record<string, unknown>> } };
+
+      expect(parsed.profiles.list.find((p) => p.guid === first.guid)?.name).toBe('Nome renomeado');
+      expect(parsed.profiles.list.find((p) => p.guid === other.guid)?.name).toBe('Outro');
+    });
+
+    it('remove só o perfil que saiu de previousProfileGuids, preservando os demais e os nativos', () => {
+      const paths = createPaths(`{
+        "profiles": { "list": [{ "guid": "{wsl-guid}", "name": "Ubuntu", "source": "Windows.Terminal.Wsl" }] }
+      }`);
+      const service = new TerminalService(paths);
+      const removed = makeProfile({ name: 'Será removido' });
+      const kept = makeProfile({ id: 'perfil-2', guid: '{22222222-2222-2222-2222-222222222222}', name: 'Fica' });
+
+      const afterCreate = service.buildContent({ ...defaultSettings, terminalProfiles: [removed, kept] }, []);
+      fs.writeFileSync(paths.terminalSettingsPath, afterCreate, 'utf8');
+
+      const updated = service.buildContent(
+        { ...defaultSettings, terminalProfiles: [kept] },
+        [removed.guid, kept.guid],
+      );
+      const parsed = JSON.parse(updated) as { profiles: { list: Array<Record<string, unknown>> } };
+
+      expect(parsed.profiles.list.some((p) => p.guid === removed.guid)).toBe(false);
+      expect(parsed.profiles.list.some((p) => p.guid === kept.guid)).toBe(true);
+      expect(parsed.profiles.list.some((p) => p.name === 'Ubuntu')).toBe(true);
+    });
+
+    it('remove todos os perfis geridos quando terminalProfiles volta a [] (cenário restoreDefaults)', () => {
+      const paths = createPaths('{}');
+      const service = new TerminalService(paths);
+      const profile = makeProfile();
+
+      const afterCreate = service.buildContent({ ...defaultSettings, terminalProfiles: [profile] }, []);
+      fs.writeFileSync(paths.terminalSettingsPath, afterCreate, 'utf8');
+
+      const updated = service.buildContent({ ...defaultSettings, terminalProfiles: [] }, [profile.guid]);
+      const parsed = JSON.parse(updated) as { profiles: { list: unknown[] } };
+
+      expect(parsed.profiles.list).toHaveLength(0);
+    });
+
+    it('é idempotente: aplicar o mesmo settings duas vezes não duplica nem altera o array', () => {
+      const paths = createPaths('{}');
+      const service = new TerminalService(paths);
+      const profile = makeProfile();
+      const settings = { ...defaultSettings, terminalProfiles: [profile] };
+
+      const first = service.buildContent(settings, []);
+      fs.writeFileSync(paths.terminalSettingsPath, first, 'utf8');
+      const second = service.buildContent(settings, [profile.guid]);
+
+      expect(JSON.parse(second).profiles.list).toHaveLength(1);
+      expect(JSON.parse(second)).toEqual(JSON.parse(first));
+    });
+
+    it('serializa ícone emoji/arquivo como string simples e remove a chave quando "nenhum"', () => {
+      const paths = createPaths('{}');
+      const service = new TerminalService(paths);
+      const emoji = makeProfile({ icon: { kind: 'emoji', value: '🚀' } });
+      const file = makeProfile({ id: 'perfil-2', guid: '{22222222-2222-2222-2222-222222222222}', icon: { kind: 'file', path: 'C:\\icons\\a.ico' } });
+      const none = makeProfile({ id: 'perfil-3', guid: '{33333333-3333-3333-3333-333333333333}', icon: { kind: 'none' } });
+
+      const updated = service.buildContent({ ...defaultSettings, terminalProfiles: [emoji, file, none] }, []);
+      const parsed = JSON.parse(updated) as { profiles: { list: Array<Record<string, unknown>> } };
+
+      expect(parsed.profiles.list[0].icon).toBe('🚀');
+      expect(parsed.profiles.list[1].icon).toBe('C:\\icons\\a.ico');
+      expect(parsed.profiles.list[2].icon).toBeUndefined();
+    });
+
+    it('grava experimental.useAtlasEngine como chave única com ponto literal', () => {
+      const paths = createPaths('{}');
+      const service = new TerminalService(paths);
+      const profile = makeProfile({ advanced: { ...emptyTerminalProfileAdvanced, useAtlasEngine: true } });
+
+      const updated = service.buildContent({ ...defaultSettings, terminalProfiles: [profile] }, []);
+      const parsed = JSON.parse(updated) as { profiles: { list: Array<Record<string, unknown>> } };
+
+      expect(parsed.profiles.list[0]['experimental.useAtlasEngine']).toBe(true);
+      expect(parsed.profiles.list[0].experimental).toBeUndefined();
+    });
+
+    it('converte fontFeatures/fontAxes do perfil de array para objeto', () => {
+      const paths = createPaths('{}');
+      const service = new TerminalService(paths);
+      const profile = makeProfile({
+        appearance: { ...emptyTerminalProfileAppearance, fontFeatures: [{ tag: 'ss01', value: 1 }] },
+      });
+
+      const updated = service.buildContent({ ...defaultSettings, terminalProfiles: [profile] }, []);
+      const parsed = JSON.parse(updated) as { profiles: { list: Array<{ font: Record<string, unknown> }> } };
+
+      expect(parsed.profiles.list[0].font.features).toEqual({ ss01: 1 });
+    });
   });
 });

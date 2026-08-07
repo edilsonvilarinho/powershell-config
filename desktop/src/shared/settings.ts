@@ -23,6 +23,147 @@ const customizationDescriptionSchema = z.string().trim().max(256).refine(
   'Use uma descrição em uma única linha, sem caracteres de controle.',
 );
 
+const noControlCharsMessage = 'Use um valor em uma única linha, sem caracteres de controle.';
+const noControlChars = (value: string) => !new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]').test(value);
+
+const guidSchema = z.string().regex(
+  /^\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}$/,
+  'Use um GUID no formato "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}".',
+);
+const profileNameSchema = z.string().trim().min(1).max(128).refine(noControlChars, noControlCharsMessage);
+const commandLineSchema = z.string().trim().max(1024).refine(noControlChars, noControlCharsMessage).nullable();
+const startingDirectorySchema = z.string().trim().max(1024).refine(noControlChars, noControlCharsMessage).nullable();
+const tabTitleSchema = z.string().trim().max(256).refine(noControlChars, noControlCharsMessage).nullable();
+const iconSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('none') }).strict(),
+  z.object({ kind: z.literal('emoji'), value: z.string().trim().min(1).max(16) }).strict(),
+  z.object({ kind: z.literal('file'), path: z.string().trim().min(1).max(1024) }).strict(),
+]).nullable();
+const bellSoundSchema = z.union([
+  z.string().trim().max(1024),
+  z.array(z.string().trim().max(1024)).max(10),
+]).nullable();
+const historySizeSchema = z.number().int().min(0).max(32767).nullable();
+const antialiasingModeSchema = z.enum(['grayscale', 'cleartype', 'aliased']).nullable();
+const closeOnExitSchema = z.enum(['automatic', 'graceful', 'always', 'never']).nullable();
+const profileBellStyleSchema = z.enum(['all', 'audible', 'window', 'taskbar', 'none']).nullable();
+const pathTranslationStyleSchema = z.enum(['none', 'wsl', 'cygwin', 'msys2', 'mingw']).nullable();
+
+const terminalProfileAppearanceSchema = z.object({
+  colorScheme: z.string().min(1).max(128).nullable(),
+  fontFace: z.string().min(1).max(128).nullable(),
+  fontSize: z.number().min(6).max(72).nullable(),
+  fontWeight: z.union([
+    z.enum(['thin', 'extra-light', 'light', 'semi-light', 'normal', 'medium', 'semi-bold', 'bold', 'extra-bold', 'black', 'extra-black']),
+    z.number().int().min(100).max(990),
+  ]).nullable(),
+  cellWidth: cssLengthSchema,
+  cellHeight: cssLengthSchema,
+  fontFeatures: z.array(z.object({ tag: openTypeTagSchema, value: z.number().int() }).strict()).max(50),
+  fontAxes: z.array(z.object({ tag: openTypeTagSchema, value: z.number() }).strict()).max(50),
+
+  cursorShape: z.enum(['bar', 'doubleUnderscore', 'emptyBox', 'filledBox', 'underscore', 'vintage']).nullable(),
+  cursorColor: hexColorSchema,
+  cursorHeight: z.number().int().min(1).max(100).nullable(),
+
+  backgroundImagePath: z.string().trim().max(1024).nullable(),
+  backgroundImageOpacity: z.number().min(0).max(1).nullable(),
+  backgroundImageStretchMode: z.enum(['fill', 'none', 'uniform', 'uniformToFill']).nullable(),
+  backgroundImageAlignment: z.enum(['center', 'left', 'right', 'top', 'bottom', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight']).nullable(),
+
+  intenseTextStyle: z.enum(['none', 'bold', 'bright', 'all']).nullable(),
+  adjustIndistinguishableColors: z.enum(['never', 'indexed', 'always']).nullable(),
+  retroTerminalEffect: z.boolean().nullable(),
+
+  padding: paddingSchema,
+  scrollbarState: z.enum(['visible', 'hidden', 'always']).nullable(),
+  tabColor: hexColorSchema,
+
+  foreground: hexColorSchema,
+  background: hexColorSchema,
+  selectionBackground: hexColorSchema,
+
+  opacity: z.number().int().min(0).max(100).nullable(),
+  useAcrylic: z.boolean().nullable(),
+}).strict();
+
+const terminalProfileAdvancedSchema = z.object({
+  suppressApplicationTitle: z.boolean().nullable(),
+  antialiasingMode: antialiasingModeSchema,
+  altGrAliasing: z.boolean().nullable(),
+  snapOnInput: z.boolean().nullable(),
+  historySize: historySizeSchema,
+  closeOnExit: closeOnExitSchema,
+  bellStyle: profileBellStyleSchema,
+  bellSound: bellSoundSchema,
+  pathTranslationStyle: pathTranslationStyleSchema,
+  useAtlasEngine: z.boolean().nullable(),
+  autoMarkPrompts: z.boolean().nullable(),
+  showMarksOnScrollbar: z.boolean().nullable(),
+}).strict();
+
+const terminalProfileSchema = z.object({
+  id: customizationIdSchema,
+  guid: guidSchema,
+  name: profileNameSchema,
+  commandline: commandLineSchema,
+  startingDirectory: startingDirectorySchema,
+  icon: iconSchema,
+  tabTitle: tabTitleSchema,
+  elevate: z.boolean(),
+  hidden: z.boolean(),
+  appearance: terminalProfileAppearanceSchema,
+  advanced: terminalProfileAdvancedSchema,
+}).strict();
+
+export type TerminalProfileConfig = z.infer<typeof terminalProfileSchema>;
+export type TerminalProfileAppearance = z.infer<typeof terminalProfileAppearanceSchema>;
+export type TerminalProfileAdvanced = z.infer<typeof terminalProfileAdvancedSchema>;
+
+export const emptyTerminalProfileAppearance: TerminalProfileAppearance = {
+  colorScheme: null,
+  fontFace: null,
+  fontSize: null,
+  fontWeight: null,
+  cellWidth: null,
+  cellHeight: null,
+  fontFeatures: [],
+  fontAxes: [],
+  cursorShape: null,
+  cursorColor: null,
+  cursorHeight: null,
+  backgroundImagePath: null,
+  backgroundImageOpacity: null,
+  backgroundImageStretchMode: null,
+  backgroundImageAlignment: null,
+  intenseTextStyle: null,
+  adjustIndistinguishableColors: null,
+  retroTerminalEffect: null,
+  padding: null,
+  scrollbarState: null,
+  tabColor: null,
+  foreground: null,
+  background: null,
+  selectionBackground: null,
+  opacity: null,
+  useAcrylic: null,
+};
+
+export const emptyTerminalProfileAdvanced: TerminalProfileAdvanced = {
+  suppressApplicationTitle: null,
+  antialiasingMode: null,
+  altGrAliasing: null,
+  snapOnInput: null,
+  historySize: null,
+  closeOnExit: null,
+  bellStyle: null,
+  bellSound: null,
+  pathTranslationStyle: null,
+  useAtlasEngine: null,
+  autoMarkPrompts: null,
+  showMarksOnScrollbar: null,
+};
+
 export function isValidCommandName(value: string): boolean {
   return commandNameSchema.safeParse(value).success;
 }
@@ -96,7 +237,7 @@ const customizationsSchema = z.object({
 });
 
 export const editableSettingsSchema = z.object({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   ui: z.object({
     theme: z.enum(['dark', 'light']),
   }).strict(),
@@ -162,6 +303,7 @@ export const editableSettingsSchema = z.object({
     padding: paddingSchema,
     scrollbarState: z.enum(['visible', 'hidden', 'always']).nullable(),
   }).strict(),
+  terminalProfiles: z.array(terminalProfileSchema).max(50),
 }).strict();
 
 export const settingsSchema = editableSettingsSchema.superRefine((settings, context) => {
@@ -179,12 +321,31 @@ export const settingsSchema = editableSettingsSchema.superRefine((settings, cont
       }
     });
   }
+
+  const seenIds = new Set<string>();
+  const seenGuids = new Set<string>();
+  const seenNames = new Set<string>();
+  settings.terminalProfiles.forEach((profile, index) => {
+    if (seenIds.has(profile.id)) {
+      context.addIssue({ code: 'custom', path: ['terminalProfiles', index, 'id'], message: 'Identificador de perfil duplicado.' });
+    }
+    seenIds.add(profile.id);
+    if (seenGuids.has(profile.guid)) {
+      context.addIssue({ code: 'custom', path: ['terminalProfiles', index, 'guid'], message: 'GUID de perfil duplicado.' });
+    }
+    seenGuids.add(profile.guid);
+    const normalizedName = profile.name.toLowerCase();
+    if (seenNames.has(normalizedName)) {
+      context.addIssue({ code: 'custom', path: ['terminalProfiles', index, 'name'], message: `O nome "${profile.name}" já está em uso por outro perfil gerenciado pelo app.` });
+    }
+    seenNames.add(normalizedName);
+  });
 });
 
 export type AppSettings = z.infer<typeof editableSettingsSchema>;
 
 export const defaultSettings: AppSettings = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   ui: { theme: 'dark' },
   startup: { enabled: true },
   prompt: { enabled: true, themeId: 'builtin:takuya', themeName: 'takuya' },
@@ -234,6 +395,7 @@ export const defaultSettings: AppSettings = {
     padding: null,
     scrollbarState: null,
   },
+  terminalProfiles: [],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -252,12 +414,12 @@ function mergeKnownDefaults(defaultValue: unknown, candidate: unknown): unknown 
 }
 
 export function migrateSettings(input: unknown): AppSettings {
-  if (!isRecord(input) || ![1, 2, 3, 4].includes(input.schemaVersion as number)) {
+  if (!isRecord(input) || ![1, 2, 3, 4, 5].includes(input.schemaVersion as number)) {
     throw new Error('Versão de settings.json ausente ou não suportada.');
   }
   let migratedRecord: Record<string, unknown>;
   if (input.schemaVersion === 1) {
-    migratedRecord = { ...input, schemaVersion: 4, customizations: defaultSettings.customizations };
+    migratedRecord = { ...input, schemaVersion: 5, customizations: defaultSettings.customizations };
   } else if (input.schemaVersion === 2) {
     const customizations = isRecord(input.customizations) ? input.customizations : {};
     const addDescription = (entries: unknown): unknown[] => Array.isArray(entries)
@@ -267,7 +429,7 @@ export function migrateSettings(input: unknown): AppSettings {
       : [];
     migratedRecord = {
       ...input,
-      schemaVersion: 4,
+      schemaVersion: 5,
       customizations: {
         ...customizations,
         aliases: addDescription(customizations.aliases),
@@ -275,9 +437,9 @@ export function migrateSettings(input: unknown): AppSettings {
       },
     };
   } else {
-    // schemaVersion 3 ou 4: mergeKnownDefaults abaixo já injeta os campos novos de `terminal`
-    // (foreground/background/selectionBackground/fontWeight/etc.) ausentes em settings v3 com seus neutros.
-    migratedRecord = { ...input, schemaVersion: 4 };
+    // schemaVersion 3, 4 ou 5: mergeKnownDefaults abaixo já injeta os campos novos ausentes
+    // (terminal.foreground/background/... entre v3->v4, terminalProfiles entre v4->v5) com seus neutros.
+    migratedRecord = { ...input, schemaVersion: 5 };
   }
   return editableSettingsSchema.parse(mergeKnownDefaults(defaultSettings, migratedRecord));
 }
@@ -419,6 +581,7 @@ export interface DesktopApi {
   restoreDefaults(expectedRevision: string): Promise<ApplyResult>;
   restoreLatestBackup(expectedRevision: string): Promise<ApplyResult>;
   selectBackgroundImage(): Promise<string | null>;
+  selectProfileIcon(): Promise<string | null>;
   openTerminal(): Promise<void>;
   openLogs(): Promise<void>;
   quit(): void;
