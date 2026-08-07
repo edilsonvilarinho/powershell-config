@@ -13,6 +13,7 @@ export const ipcChannels = {
   restoreLatestBackup: 'powershell-config:restore-latest-backup',
   selectBackgroundImage: 'powershell-config:select-background-image',
   selectProfileIcon: 'powershell-config:select-profile-icon',
+  selectStartingDirectory: 'powershell-config:select-starting-directory',
   openTerminal: 'powershell-config:open-terminal',
   openLogs: 'powershell-config:open-logs',
   quit: 'powershell-config:quit',

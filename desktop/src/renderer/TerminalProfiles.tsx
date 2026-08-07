@@ -372,6 +372,46 @@ function duplicateProfile(source: TerminalProfileConfig, existingLowercaseNames:
   };
 }
 
+function TerminalProfileStartingDirectoryField({ value, onChange }: {
+  value: string | null;
+  onChange: (value: string | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const useParentDirectory = value === null;
+
+  const chooseDirectory = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const selected = await window.powershellConfig.selectStartingDirectory();
+      if (selected) onChange(selected);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Field label="Diretório inicial" hint="A pasta em que o perfil começa quando é carregado.">
+      <div className="icon-field">
+        <input
+          value={value ?? ''}
+          disabled={useParentDirectory}
+          placeholder="Usar o diretório de processo pai"
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button type="button" className="secondary compact" disabled={useParentDirectory || busy} onClick={() => void chooseDirectory()}>Procurar...</button>
+        <label className="inline-checkbox">
+          <input
+            type="checkbox"
+            checked={useParentDirectory}
+            onChange={(event) => onChange(event.target.checked ? null : '')}
+          />
+          Usar o diretório de processo pai
+        </label>
+      </div>
+    </Field>
+  );
+}
+
 function TerminalProfileEditor({ profile, onChange, onDelete, schemes, activeColorSchemeColors }: {
   profile: TerminalProfileConfig;
   onChange: (updater: (profile: TerminalProfileConfig) => TerminalProfileConfig) => void;
@@ -396,9 +436,9 @@ function TerminalProfileEditor({ profile, onChange, onDelete, schemes, activeCol
         <div className="form-grid terminal-fields">
           <Field label="Nome"><input value={profile.name} maxLength={128} onChange={(event) => setField('name', event.target.value)} /></Field>
           <Field label="Linha de comando" hint="Arquivo executável usado no perfil."><input value={profile.commandline ?? ''} placeholder="%SystemRoot%\System32\cmd.exe" onChange={(event) => setField('commandline', event.target.value.trim() || null)} /></Field>
-          <Field label="Diretório inicial" hint="Vazio usa o diretório de processo pai."><input value={profile.startingDirectory ?? ''} placeholder="Usar o diretório de processo pai" onChange={(event) => setField('startingDirectory', event.target.value.trim() || null)} /></Field>
           <Field label="Título da guia" hint="Substitui o nome do perfil como título passado ao shell."><input value={profile.tabTitle ?? ''} placeholder="Nenhum" onChange={(event) => setField('tabTitle', event.target.value.trim() || null)} /></Field>
         </div>
+        <TerminalProfileStartingDirectoryField value={profile.startingDirectory} onChange={(value) => setField('startingDirectory', value)} />
         <TerminalProfileIconField icon={profile.icon} onChange={(icon) => setField('icon', icon)} />
         <Toggle checked={profile.elevate} onChange={(value) => setField('elevate', value)} label="Executar esse perfil como Administrador" description="Se habilitado, o perfil abre automaticamente em uma janela elevada." />
         <Toggle checked={profile.hidden} onChange={(value) => setField('hidden', value)} label="Ocultar perfil da lista suspensa" description="O perfil continua no settings.json, mas não aparece na lista de perfis do Terminal." />
@@ -421,7 +461,7 @@ export function TerminalProfilesSection({ profiles, onChange, schemes, activeCol
   schemes: string[];
   activeColorSchemeColors: TerminalColorSchemeColors | null;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(profiles[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [duplicateSourceId, setDuplicateSourceId] = useState<string>(profiles[0]?.id ?? '');
 
@@ -456,20 +496,8 @@ export function TerminalProfilesSection({ profiles, onChange, schemes, activeCol
   };
 
   return (
-    <div className="terminal-profiles-layout">
-      <aside className="terminal-profiles-list panel">
-        {profiles.map((profile) => (
-          <button
-            key={profile.id}
-            type="button"
-            className={`terminal-profile-item ${selected?.id === profile.id ? 'active' : ''}`}
-            onClick={() => setSelectedId(profile.id)}
-          >
-            {profile.name}
-          </button>
-        ))}
-        {profiles.length === 0 && <p className="empty">Nenhum perfil gerenciado pelo app ainda.</p>}
-
+    <div className="terminal-profiles-accordion">
+      <div className="panel terminal-profiles-add">
         <button type="button" className="secondary compact" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((open) => !open)}>+ Adicionar perfil</button>
         {addMenuOpen && (
           <div className="collapsible-body">
@@ -484,20 +512,35 @@ export function TerminalProfilesSection({ profiles, onChange, schemes, activeCol
             )}
           </div>
         )}
-      </aside>
+      </div>
 
-      {selected ? (
-        <TerminalProfileEditor
-          key={selected.id}
-          profile={selected}
-          onChange={updateSelected}
-          onDelete={removeSelected}
-          schemes={schemes}
-          activeColorSchemeColors={activeColorSchemeColors}
-        />
-      ) : (
-        <p className="empty">Nenhum perfil selecionado. Crie um perfil para configurar Nome, Linha de comando, Aparência, Emulação e Avançado.</p>
-      )}
+      {profiles.length === 0 && <p className="empty">Nenhum perfil gerenciado pelo app ainda.</p>}
+
+      {profiles.map((profile) => {
+        const isOpen = selectedId === profile.id;
+        return (
+          <div key={profile.id} className={`terminal-profile-row panel ${isOpen ? 'expanded' : ''}`}>
+            <button
+              type="button"
+              className="terminal-profile-header"
+              aria-expanded={isOpen}
+              onClick={() => setSelectedId(isOpen ? null : profile.id)}
+            >
+              <span>{profile.name}</span>
+              <i aria-hidden="true">{isOpen ? '▲' : '▼'}</i>
+            </button>
+            {isOpen && (
+              <TerminalProfileEditor
+                profile={profile}
+                onChange={updateSelected}
+                onDelete={removeSelected}
+                schemes={schemes}
+                activeColorSchemeColors={activeColorSchemeColors}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -582,6 +582,7 @@ export interface DesktopApi {
   restoreLatestBackup(expectedRevision: string): Promise<ApplyResult>;
   selectBackgroundImage(): Promise<string | null>;
   selectProfileIcon(): Promise<string | null>;
+  selectStartingDirectory(): Promise<string | null>;
   openTerminal(): Promise<void>;
   openLogs(): Promise<void>;
   quit(): void;

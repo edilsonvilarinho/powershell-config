@@ -132,15 +132,15 @@ button.primary, button.secondary, button.ghost, button.danger { min-height: 38px
 .icon-field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .icon-field select { min-height: 38px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 11px; }
 .icon-field input { flex: 1; min-width: 120px; min-height: 38px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 11px; }
-.terminal-profiles-layout { display: grid; grid-template-columns: minmax(220px, .3fr) minmax(420px, 1fr); gap: 16px; align-items: start; }
-.terminal-profiles-list { display: grid; gap: 8px; padding: 14px; }
-.terminal-profile-item { text-align: left; min-height: 38px; padding: 0 12px; border: 1px solid var(--border); background: var(--bg-soft); color: var(--text); cursor: pointer; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.terminal-profile-item.active { border-color: var(--primary); box-shadow: inset 3px 0 var(--primary); }
-.terminal-profile-editor { display: grid; gap: 16px; min-width: 0; }
-
-@media (max-width: 900px) {
-  .terminal-profiles-layout { grid-template-columns: 1fr; }
-}
+.inline-checkbox { display: flex; align-items: center; gap: 6px; color: var(--text); white-space: nowrap; cursor: pointer; }
+.inline-checkbox input { min-height: auto; }
+.terminal-profiles-accordion { display: grid; gap: 10px; }
+.terminal-profiles-add { padding: 12px 14px; }
+.terminal-profile-row { padding: 0; overflow: hidden; }
+.terminal-profile-row.expanded { border-color: var(--border-strong); }
+.terminal-profile-header { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border: 0; background: transparent; color: var(--text); cursor: pointer; text-align: left; font-weight: 600; }
+.terminal-profile-row.expanded .terminal-profile-header { border-bottom: 1px solid var(--border); }
+.terminal-profile-editor { display: grid; gap: 16px; min-width: 0; padding: 16px; }
 
 @media (max-width: 760px) {
   .customization-type-grid, .guided-creator, .template-grid { grid-template-columns: 1fr; }

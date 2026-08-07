@@ -111,7 +111,7 @@ function profileFieldDescriptors(p: TerminalProfileConfig): ProfileFieldDescript
     { path: ['elevate'], value: p.elevate, always: true },
 
     { path: ['commandline'], value: p.commandline, always: false },
-    { path: ['startingDirectory'], value: p.startingDirectory, always: false },
+    { path: ['startingDirectory'], value: p.startingDirectory?.trim() || null, always: false },
     { path: ['tabTitle'], value: p.tabTitle, always: false },
     { path: ['icon'], value: serializeProfileIcon(p.icon), always: false },
 
@@ -288,6 +288,15 @@ export class TerminalService {
 
   async selectProfileIconWithDialog(): Promise<string | null> {
     return this.selectFileWithDialog({ title: 'Selecionar ícone do perfil', extensions: ['ico', 'png', 'jpg', 'jpeg', 'bmp', 'gif', 'svg'] });
+  }
+
+  async selectStartingDirectoryWithDialog(): Promise<string | null> {
+    const result = await dialog.showOpenDialog({
+      title: 'Selecionar diretório inicial',
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length !== 1) return null;
+    return result.filePaths[0];
   }
 
   private applyDefaultsEdits(content: string, t: AppSettings['terminal']): string {
