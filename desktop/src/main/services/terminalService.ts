@@ -281,6 +281,34 @@ export class TerminalService {
     return [...byGuid.values()].sort((left, right) => left.name.localeCompare(right.name));
   }
 
+  /** Guids e nomes (minúsculos) que identificam um perfil no settings.json **depois** de aplicar
+   * `nextProfiles`. Parte de `listProfiles()` (estado em disco), remove os perfis gerenciados que
+   * saíram entre `previousProfiles` e `nextProfiles` - que `applyProfilesListEdits` vai apagar de
+   * `profiles.list` nesta mesma escrita - e soma os perfis gerenciados que ficam, inclusive os
+   * criados agora e ainda ausentes do arquivo. Usado para validar `defaultProfile`. */
+  profileIdentifiersAfterApply(
+    nextProfiles: readonly TerminalProfileConfig[],
+    previousProfiles: readonly TerminalProfileConfig[],
+  ): Set<string> {
+    const keptGuids = new Set(nextProfiles.map((profile) => profile.guid.toLowerCase()));
+    const removedGuids = new Set(
+      previousProfiles
+        .map((profile) => profile.guid.toLowerCase())
+        .filter((guid) => !keptGuids.has(guid)),
+    );
+    const known = new Set<string>();
+    for (const profile of this.listProfiles()) {
+      if (removedGuids.has(profile.guid.toLowerCase())) continue;
+      known.add(profile.guid.toLowerCase());
+      known.add(profile.name.toLowerCase());
+    }
+    for (const profile of nextProfiles) {
+      known.add(profile.guid.toLowerCase());
+      known.add(profile.name.toLowerCase());
+    }
+    return known;
+  }
+
   private findSchemeColors(content: string, name: string): TerminalColorSchemeColors | null {
     let parsed: { schemes?: unknown };
     try {

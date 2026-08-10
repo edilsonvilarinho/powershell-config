@@ -385,6 +385,33 @@ describe('TerminalService', () => {
     });
   });
 
+  describe('profileIdentifiersAfterApply', () => {
+    const paths = () => createPaths(`{
+      "profiles": { "list": [
+        { "guid": "{nativo}", "name": "PowerShell 7" },
+        { "guid": "{11111111-1111-1111-1111-111111111111}", "name": "Dev Shell" }
+      ] }
+    }`);
+
+    it('não considera conhecido o perfil gerenciado removido nesta aplicação', () => {
+      const removido = makeProfile();
+      const known = new TerminalService(paths()).profileIdentifiersAfterApply([], [removido]);
+
+      expect(known.has('{nativo}')).toBe(true);
+      expect(known.has(removido.guid.toLowerCase())).toBe(false);
+      expect(known.has('dev shell')).toBe(false);
+    });
+
+    it('considera conhecido o perfil criado nesta aplicação, ainda ausente do settings.json', () => {
+      const novo = makeProfile({ guid: '{22222222-2222-2222-2222-222222222222}', name: 'Recém-criado' });
+      const known = new TerminalService(paths()).profileIdentifiersAfterApply([novo], []);
+
+      expect(known.has(novo.guid.toLowerCase())).toBe(true);
+      expect(known.has('recém-criado')).toBe(true);
+      expect(known.has('{11111111-1111-1111-1111-111111111111}')).toBe(true);
+    });
+  });
+
   describe('chaves de raiz (Inicialização)', () => {
     const startup = (overrides: Partial<AppSettings['terminalStartup']> = {}): AppSettings['terminalStartup'] =>
       ({ ...emptyTerminalStartup, ...overrides });
