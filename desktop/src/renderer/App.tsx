@@ -185,16 +185,23 @@ function Profile({ draft, onDraft, nativeAliases, issues }: { draft: AppSettings
 
 type TerminalTab = 'defaults' | 'profiles' | 'startup';
 
-function TerminalSettings({ draft, onDraft, schemes, activeColorSchemeColors, profileChoices }: {
+function TerminalSettings({ draft, onDraft, schemes, activeColorSchemeColors, profileChoices, appliedProfiles }: {
   draft: AppSettings;
   onDraft: (settings: AppSettings) => void;
   schemes: string[];
   activeColorSchemeColors: TerminalColorSchemeColors | null;
   profileChoices: TerminalProfileChoice[];
+  /** Perfis gerenciados já aplicados. A diferença para `draft.terminalProfiles` são os perfis que a
+   * próxima aplicação vai apagar do settings.json do Windows Terminal. */
+  appliedProfiles: AppSettings['terminalProfiles'];
 }) {
   const [tab, setTab] = useState<TerminalTab>('defaults');
   const t = draft.terminal;
   const setTerminal = (key: keyof AppSettings['terminal'], value: unknown) => onDraft(setNested(draft, 'terminal', key, value));
+  const removedProfileGuids = useMemo(() => {
+    const kept = new Set(draft.terminalProfiles.map((profile) => profile.guid.toLowerCase()));
+    return new Set(appliedProfiles.map((profile) => profile.guid.toLowerCase()).filter((guid) => !kept.has(guid)));
+  }, [appliedProfiles, draft.terminalProfiles]);
 
   return (
     <section>
@@ -237,6 +244,7 @@ function TerminalSettings({ draft, onDraft, schemes, activeColorSchemeColors, pr
           onChange={(startup) => onDraft({ ...draft, terminalStartup: startup })}
           profileChoices={profileChoices}
           draftProfiles={draft.terminalProfiles}
+          removedProfileGuids={removedProfileGuids}
         />
       )}
     </section>
@@ -385,7 +393,10 @@ export function App() {
     try {
       const result = await window.powershellConfig.applySettings({ settings: draft, expectedRevision: data.revision });
       const refreshed = await window.powershellConfig.getBootstrap();
-      setData({ ...refreshed, settings: result.settings, revision: result.revision });
+      // A revisão precisa ser a do mesmo bootstrap que forneceu o resto do estado: `result.revision`
+      // foi calculada antes desta leitura e ficaria defasada se algo tocasse os arquivos gerenciados
+      // nesse intervalo, fazendo a próxima aplicação ser rejeitada e descartar o rascunho.
+      setData({ ...refreshed, settings: result.settings, revision: refreshed.revision });
       setDraft(cloneSettings(result.settings));
       setReview(false);
       setMessage(
@@ -480,7 +491,7 @@ export function App() {
     try {
       const result = await window.powershellConfig.applyConfigurationImport({ token: importPreview.token, expectedRevision: data.revision });
       const refreshed = await window.powershellConfig.getBootstrap();
-      setData({ ...refreshed, settings: result.settings, userState: result.userState, revision: result.revision });
+      setData({ ...refreshed, settings: result.settings, userState: result.userState, revision: refreshed.revision });
       setDraft(cloneSettings(result.settings));
       setImportPreview(null);
       setMessage({ type: 'success', text: `Configuração importada com backup e ${result.importedThemeCount} tema(s).` });
@@ -523,7 +534,7 @@ export function App() {
         {section === 'themes' && <Themes themes={data.themes} draft={draft} onDraft={setDraft} onImport={() => void importTheme()} preview={preview} previewBusy={previewBusy} favorites={new Set(data.userState.favoriteThemeIds)} favoritesBusy={favoritesBusy} onToggleFavorite={(id) => void toggleFavorite(id)} />}
         {section === 'profile' && hasUnsavedCustomizations && <p className="unsaved-customizations-banner" role="alert">Você adicionou funções, aliases ou comandos que ainda não foram salvos. Eles existem só nesta tela — clique em <strong>Revisar e aplicar</strong>, no rodapé, para gravá-los de verdade. Se o app fechar antes disso, essas alterações serão perdidas.</p>}
         {section === 'profile' && <Profile draft={draft} onDraft={setDraft} nativeAliases={data.nativeAliases} issues={customizationIssues} />}
-        {section === 'terminal' && <TerminalSettings draft={draft} onDraft={setDraft} schemes={data.colorSchemes} activeColorSchemeColors={data.activeColorSchemeColors} profileChoices={data.terminalProfileChoices} />}
+        {section === 'terminal' && <TerminalSettings draft={draft} onDraft={setDraft} schemes={data.colorSchemes} activeColorSchemeColors={data.activeColorSchemeColors} profileChoices={data.terminalProfileChoices} appliedProfiles={data.settings.terminalProfiles} />}
         {section === 'settings' && <SettingsPage draft={draft} onDraft={setDraft} diagnostics={data.diagnostics} backupLabel={data.backups[0] ? `Último: ${new Date(data.backups[0].createdAt).toLocaleString('pt-BR')}` : 'Nenhum backup'} onOpenTerminal={() => void runAction(() => window.powershellConfig.openTerminal())} onOpenLogs={() => void runAction(() => window.powershellConfig.openLogs())} onExport={() => void exportConfiguration()} onImport={() => void inspectConfigurationImport()} onRestore={() => void restore()} onRestoreBackup={() => void restoreBackup()} />}
       </main>
       <div className="apply-bar"><span>{dirty ? `${changes.length} alteração(ões) pendente(s)` : 'Configuração sincronizada'}</span><button className="ghost" disabled={!dirty || busy} onClick={() => setDraft(cloneSettings(data.settings))}>Descartar</button><button className="primary" disabled={!dirty || busy} onClick={() => void reviewDraft()}>Revisar e aplicar</button></div>

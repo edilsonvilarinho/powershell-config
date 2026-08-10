@@ -17,7 +17,7 @@ import type {
   UserState,
   UserStateResult,
 } from '../../shared/settings.js';
-import { defaultSettings, migrateSettings, settingsSchema, userStateSchema } from '../../shared/settings.js';
+import { defaultSettings, emptyTerminalStartup, migrateSettings, settingsSchema, userStateSchema } from '../../shared/settings.js';
 import type { AppPaths } from './paths.js';
 import { appendLog, copyIfExists, ensureDirectory, hashFile, readUtf8, sha256, writeAtomic } from './fileService.js';
 import { SettingsService } from './settingsService.js';
@@ -45,6 +45,14 @@ interface SnapshotEntry {
   target: string;
   backup: string;
   existed: boolean;
+}
+
+/** A tela "Inicialização" só expõe `defaultProfile`. As demais chaves de raiz continuam no schema e
+ * em `TerminalService`, mas o app deixou de gerenciá-las: forçá-las a `null` aqui faz
+ * `applyStartupEdits` remover do settings.json do Windows Terminal as que o app tenha gravado antes
+ * (compara com `previousStartup`) e nunca gravar novas. É idempotente. */
+function withUnmanagedStartupKeysCleared(startup: AppSettings['terminalStartup']): AppSettings['terminalStartup'] {
+  return { ...emptyTerminalStartup, defaultProfile: startup.defaultProfile };
 }
 
 export class ApplicationService {
@@ -113,6 +121,10 @@ export class ApplicationService {
     const requested = parsedRequest.data;
     const currentRevision = this.revision();
     if (request.expectedRevision !== currentRevision) {
+      appendLog(
+        this.paths.logPath,
+        `Aplicação rejeitada por revisão divergente. esperada=${request.expectedRevision} atual=${currentRevision}`,
+      );
       throw new Error('As configurações foram alteradas externamente. Recarregue antes de aplicar.');
     }
 
@@ -146,10 +158,11 @@ export class ApplicationService {
     const nextSettings = settingsSchema.parse({
       ...requested,
       prompt: { ...requested.prompt, themeName: selectedTheme.name },
+      terminalStartup: withUnmanagedStartupKeysCleared(requested.terminalStartup),
     });
     this.validateTerminalDefaults(nextSettings);
     this.validateTerminalProfiles(nextSettings);
-    this.validateTerminalStartup(nextSettings);
+    this.validateTerminalStartup(nextSettings, currentSettings);
 
     await this.themeService.preview(nextSettings.prompt.themeId);
     await this.validateManagedProfileSyntax();
@@ -416,7 +429,7 @@ export class ApplicationService {
     if (validation.issues[0]) throw new Error(`Customização importada inválida: ${validation.issues[0].message}`);
     this.validateTerminalDefaults(settings, { imported: true });
     this.validateTerminalProfiles(settings, { imported: true });
-    this.validateTerminalStartup(settings, { imported: true });
+    this.validateTerminalStartup(settings, this.settingsService.read(), { imported: true });
     await this.validateManagedProfileSyntax();
     await this.validateGeneratedProfileSyntax(buildCustomProfile(settings));
   }
@@ -457,22 +470,18 @@ export class ApplicationService {
     }
   }
 
-  /** `defaultProfile` do Windows Terminal aceita GUID ou nome. Aceita também um perfil criado no
-   * mesmo apply (ainda ausente do settings.json do Terminal), por isso `settings.terminalProfiles`
-   * entra na lista de candidatos. */
-  private validateTerminalStartup(settings: AppSettings, options?: { imported?: boolean }): void {
+  /** `defaultProfile` do Windows Terminal aceita GUID ou nome. A lista de candidatos é o estado do
+   * settings.json **depois** desta aplicação (`profileIdentifiersAfterApply`): um perfil criado aqui
+   * já vale, e um perfil gerenciado apagado aqui já não vale - sem isso, o perfil removido ainda
+   * estaria em disco na hora da validação e o app gravaria um `defaultProfile` órfão. */
+  private validateTerminalStartup(settings: AppSettings, previousSettings: AppSettings, options?: { imported?: boolean }): void {
     const prefix = options?.imported ? ' importado' : '';
     const { defaultProfile } = settings.terminalStartup;
     if (defaultProfile === null) return;
-    const known = new Set<string>();
-    for (const profile of this.terminalService.listProfiles()) {
-      known.add(profile.guid.toLowerCase());
-      known.add(profile.name.toLowerCase());
-    }
-    for (const profile of settings.terminalProfiles) {
-      known.add(profile.guid.toLowerCase());
-      known.add(profile.name.toLowerCase());
-    }
+    const known = this.terminalService.profileIdentifiersAfterApply(
+      settings.terminalProfiles,
+      previousSettings.terminalProfiles,
+    );
     if (!known.has(defaultProfile.toLowerCase())) {
       throw new Error(`O perfil padrão${prefix} "${defaultProfile}" não existe no Windows Terminal. Escolha outro perfil.`);
     }

@@ -1,7 +1,33 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { defaultSettings, type BootstrapData, type DesktopApi } from '../shared/settings';
+import {
+  defaultSettings,
+  emptyTerminalProfileAdvanced,
+  emptyTerminalProfileAppearance,
+  type BootstrapData,
+  type DesktopApi,
+  type TerminalProfileConfig,
+} from '../shared/settings';
+
+const pessoalGuid = '{8e9ccf13-3472-41cb-a50d-0a6762b259b5}';
+const trabalhoGuid = '{0de85ab6-174e-41e0-bf21-5eb1290336c7}';
+
+function managedProfile(id: string, guid: string, name: string): TerminalProfileConfig {
+  return {
+    id,
+    guid,
+    name,
+    commandline: null,
+    startingDirectory: null,
+    icon: null,
+    tabTitle: null,
+    elevate: false,
+    hidden: false,
+    appearance: { ...emptyTerminalProfileAppearance },
+    advanced: { ...emptyTerminalProfileAdvanced },
+  };
+}
 
 const bootstrap: BootstrapData = {
   settings: defaultSettings,
@@ -29,6 +55,25 @@ const bootstrap: BootstrapData = {
   nativeAliases: [{ name: 'gc', definition: 'Get-Content' }],
   appVersion: '1.0.0',
   backups: [],
+};
+
+/** Cenário do usuário: dois perfis gerenciados já aplicados (presentes no settings.json do Windows
+ * Terminal e em `settings.terminalProfiles`), com o perfil padrão apontando para um deles. */
+const bootstrapComPerfisGerenciados: BootstrapData = {
+  ...bootstrap,
+  settings: {
+    ...defaultSettings,
+    terminalProfiles: [
+      managedProfile('perfil-pessoal', pessoalGuid, 'PESSOAL'),
+      managedProfile('perfil-trabalho', trabalhoGuid, 'TRABALHO'),
+    ],
+    terminalStartup: { ...defaultSettings.terminalStartup, defaultProfile: pessoalGuid },
+  },
+  terminalProfileChoices: [
+    ...bootstrap.terminalProfileChoices,
+    { guid: pessoalGuid, name: 'PESSOAL', hidden: false, source: null },
+    { guid: trabalhoGuid, name: 'TRABALHO', hidden: false, source: null },
+  ],
 };
 
 afterEach(() => {
@@ -155,10 +200,30 @@ describe('App', () => {
     expect(within(defaultProfile as HTMLSelectElement).getByRole('option', { name: 'Git Bash' })).toBeInTheDocument();
     fireEvent.change(defaultProfile, { target: { value: '{gitbash-guid}' } });
 
-    fireEvent.change(screen.getByLabelText(/^Parâmetros de inicialização/), { target: { value: 'maximized' } });
-    fireEvent.change(screen.getByLabelText(/^Colunas na inicialização/), { target: { value: '140' } });
+    expect(screen.getByText('1 alteração(ões) pendente(s)')).toBeInTheDocument();
+  });
 
-    expect(screen.getByText('3 alteração(ões) pendente(s)')).toBeInTheDocument();
+  it('permite trocar o perfil padrão logo depois de apagar um perfil gerenciado', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    installApi({ getBootstrap: vi.fn().mockResolvedValue(bootstrapComPerfisGerenciados) });
+    render(<App />);
+    await screen.findByText('Seu PowerShell, sob controle.');
+    fireEvent.click(screen.getByRole('button', { name: /Windows Terminal$/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: /^Perfis/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'PESSOAL' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apagar perfil' }));
+    expect(window.confirm).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inicialização' }));
+    const defaultProfile = screen.getByLabelText(/^Perfil aberto pelo botão/) as HTMLSelectElement;
+    expect(defaultProfile.value).toBe(pessoalGuid);
+
+    fireEvent.change(defaultProfile, { target: { value: trabalhoGuid } });
+    expect((screen.getByLabelText(/^Perfil aberto pelo botão/) as HTMLSelectElement).value).toBe(trabalhoGuid);
+    // O perfil apagado no rascunho não pode continuar oferecido como perfil padrão só porque ainda
+    // existe no settings.json do Windows Terminal.
+    expect(within(defaultProfile).queryByRole('option', { name: 'PESSOAL' })).not.toBeInTheDocument();
   });
 
   it('navega para configurações e alterna para o tema claro no rascunho', async () => {
