@@ -16,17 +16,20 @@ export function Toggle({ checked, onChange, label, description }: { checked: boo
 /** Toggle com terceiro estado "herdar" (`value === null`), usado nos campos que em `profiles.list`
  * são overrides opcionais de `profiles.defaults`. Em `AppSettings['terminal']` (Padrões) o campo
  * correspondente nunca é nulo, então lá o app usa `Toggle` normal em vez deste. */
-export function NullableToggle({ value, onChange, label, description }: {
+export function NullableToggle({ value, onChange, label, description, emptyLabel = 'Herdado de Padrões' }: {
   value: boolean | null;
   onChange: (value: boolean | null) => void;
   label: string;
   description?: string;
+  /** Rótulo do estado nulo. Em Inicialização o nulo não é herança de Padrões, e sim "o app não
+   * gerencia esta chave" - a chave é removida do settings.json do Windows Terminal. */
+  emptyLabel?: string;
 }) {
   return (
     <label className="toggle-row nullable-toggle-row">
       <span><strong>{label}</strong>{description && <small>{description}</small>}</span>
       <select value={value === null ? '' : String(value)} onChange={(event) => onChange(event.target.value === '' ? null : event.target.value === 'true')}>
-        <option value="">Herdado de Padrões</option>
+        <option value="">{emptyLabel}</option>
         <option value="true">Ativado</option>
         <option value="false">Desativado</option>
       </select>

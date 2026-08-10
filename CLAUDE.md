@@ -62,7 +62,18 @@ Validar tudo antes de escrever qualquer coisa: schema Zod → colisão com alias
 
 ### Windows Terminal: edição cirúrgica, nunca reescrita
 
-`terminalService.ts` usa `jsonc-parser` (`modify` + `applyEdits`) para alterar apenas as chaves em `profiles.defaults`, preservando comentários, vírgulas finais e propriedades de terceiros. O instalador faz o equivalente em PowerShell (`Merge-TerminalSettings` em `Common.ps1`), com snapshot por propriedade para rollback seletivo. Nunca serializar o arquivo inteiro a partir de um objeto.
+`terminalService.ts` usa `jsonc-parser` (`modify` + `applyEdits`) para alterar apenas as chaves gerenciadas, preservando comentários, vírgulas finais e propriedades de terceiros. O instalador faz o equivalente em PowerShell (`Merge-TerminalSettings` em `Common.ps1`), com snapshot por propriedade para rollback seletivo. Nunca serializar o arquivo inteiro a partir de um objeto.
+
+Três superfícies, com semânticas de `null` diferentes:
+- `profiles.defaults` (`applyDefaultsEdits`, `AppSettings.terminal`) — o app é dono das chaves; `null` remove.
+- `profiles.list` (`applyProfilesListEdits`, `AppSettings.terminalProfiles`) — só entradas cujo guid pertence ao app; perfis nativos/dinâmicos nunca são tocados.
+- chaves de **raiz** da tela Inicialização (`applyStartupEdits`, `AppSettings.terminalStartup`) — o app **não** é dono: o instalador escreve `defaultProfile` e o usuário pode ter definido as demais à mão. Aqui `null` significa "não gerenciado" e não apaga nada; a chave só é removida quando o app deixou de gerenciar um campo que ele mesmo gravava (daí o parâmetro `previousStartup` de `buildContent`, análogo a `previousProfileGuids`). `defaultProfile` nunca é removido pelo app — o Windows Terminal exige a chave e o valor pré-instalação só é conhecido pelo desinstalador.
+
+### `Terminal.ManagedValues` / `Terminal.ManagedRootValues`
+
+`terminalService.updateInstallerState` grava em `install-state.json` o que o app escreveu, para o desinstalador reverter só o que continua igual: `ManagedValues` cobre `profiles.defaults`, `ManagedRootValues` cobre as chaves de raiz. Em `ManagedRootValues`, `null` = "esperado ausente"; `defaultProfile` é **omitido** quando o app não o gerencia, e essa ausência é o sinal para `Merge-TerminalSettings` manter o GUID do PowerShell 7. Sem isso, todo upgrade reverteria o perfil padrão escolhido no app, já que o merge roda também em upgrade.
+
+`Restore-TerminalSettings` reverte a raiz a partir de `Snapshot.Root`; instalações anteriores a esse campo caem no slot legado `Snapshot.DefaultProfile` (as demais chaves são tratadas como criadas pelo app). `Configure-PowerShellConfig.ps1` faz o backfill de `Snapshot.Root` uma única vez no primeiro upgrade.
 
 ### Customizações do usuário
 
@@ -74,12 +85,12 @@ O app gera `config/custom-profile.ps1` (`customProfileService.ts`) com funções
 
 ### Schema de settings
 
-`schemaVersion` atual é 3. Mudança de schema toca três arquivos que precisam ficar coerentes:
+`schemaVersion` atual é 6. Mudança de schema toca três arquivos que precisam ficar coerentes:
 - `desktop/src/shared/settings.ts` (Zod + `defaultSettings` + `migrateSettings`);
 - `powershell/settings.default.json` (payload do instalador);
-- `powershell/user_profile.ps1` (lista `schemaVersion -notin @(1, 2, 3)`).
+- `powershell/user_profile.ps1` (lista `schemaVersion -notin @(1, 2, 3, 4, 5, 6)`).
 
-`Test-PowerShellConfig.ps1` valida essas três pontas por texto e por conteúdo.
+`Test-PowerShellConfig.ps1` valida essas três pontas por texto e por conteúdo. Campo novo dentro de um grupo existente não exige bump — `mergeKnownDefaults` injeta o neutro; grupo de topo novo exige (foi assim em v4→v5 com `terminalProfiles` e v5→v6 com `terminalStartup`).
 
 ### IPC e superfície do renderer
 

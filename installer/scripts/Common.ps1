@@ -170,6 +170,37 @@ function Restore-JsonProperty {
     }
 }
 
+# Chaves de raiz do settings.json do Windows Terminal (irmas de 'profiles') expostas pela tela
+# "Inicializacao" do app desktop. Mapa: nome da chave JSON -> nome no Snapshot.Root do install-state.
+# 'defaultProfile' e a unica que o instalador escreve por conta propria; as demais so existem se o
+# app as gravar.
+$script:TerminalRootManagedNames = [ordered]@{
+    defaultProfile = 'DefaultProfile'
+    language = 'Language'
+    startOnUserLogin = 'StartOnUserLogin'
+    firstWindowPreference = 'FirstWindowPreference'
+    windowingBehavior = 'WindowingBehavior'
+    launchMode = 'LaunchMode'
+    centerOnLaunch = 'CenterOnLaunch'
+    initialPosition = 'InitialPosition'
+    initialCols = 'InitialCols'
+    initialRows = 'InitialRows'
+}
+
+function Get-TerminalRootManagedNames {
+    return $script:TerminalRootManagedNames
+}
+
+function Get-TerminalRootSnapshot {
+    param([Parameter(Mandatory = $true)]$Object)
+
+    $snapshot = [ordered]@{}
+    foreach ($name in @($script:TerminalRootManagedNames.Keys)) {
+        $snapshot[$script:TerminalRootManagedNames[$name]] = Get-PropertySnapshot -Object $Object -Name $name
+    }
+    return [pscustomobject]$snapshot
+}
+
 function Get-TerminalSettingsPath {
     $packaged = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json'
     $unpackaged = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows Terminal\settings.json'
@@ -214,7 +245,13 @@ function Test-JsonEquivalent {
 }
 
 function Merge-TerminalSettings {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        # Valores de raiz que o app desktop gravou em install-state.json (Terminal.ManagedRootValues).
+        # Quando traz 'defaultProfile', esse valor vence o padrao do instalador: o usuario escolheu
+        # outro perfil padrao no app e o upgrade nao pode reverter essa escolha em silencio.
+        [AllowNull()]$ManagedRootValues = $null
+    )
 
     $settings = if (Test-Path -LiteralPath $Path) {
         Read-JsonFile -Path $Path
@@ -239,7 +276,9 @@ function Merge-TerminalSettings {
     $defaults = $profiles.defaults
 
     $snapshot = [ordered]@{
+        # Mantido para compatibilidade com install-state.json gravados antes de Snapshot.Root existir.
         DefaultProfile = Get-PropertySnapshot -Object $settings -Name 'defaultProfile'
+        Root = Get-TerminalRootSnapshot -Object $settings
         Defaults = [ordered]@{
             ColorScheme = Get-PropertySnapshot -Object $defaults -Name 'colorScheme'
             Elevate = Get-PropertySnapshot -Object $defaults -Name 'elevate'
@@ -270,7 +309,14 @@ function Merge-TerminalSettings {
         Actions = @()
     }
 
-    Set-JsonProperty -Object $settings -Name 'defaultProfile' -Value $script:PowerShellProfileGuid
+    $defaultProfileValue = $script:PowerShellProfileGuid
+    if ($null -ne $ManagedRootValues) {
+        $managedDefaultProfile = $ManagedRootValues.PSObject.Properties['defaultProfile']
+        if ($null -ne $managedDefaultProfile -and -not [string]::IsNullOrWhiteSpace([string]$managedDefaultProfile.Value)) {
+            $defaultProfileValue = [string]$managedDefaultProfile.Value
+        }
+    }
+    Set-JsonProperty -Object $settings -Name 'defaultProfile' -Value $defaultProfileValue
     Set-JsonProperty -Object $defaults -Name 'colorScheme' -Value 'One Half Dark (modded)'
     Set-JsonProperty -Object $defaults -Name 'elevate' -Value $true
     Set-JsonProperty -Object $defaults -Name 'font' -Value ([pscustomobject]@{ face = 'Hack NF'; size = 11.0 })
@@ -330,8 +376,45 @@ function Restore-TerminalSettings {
         return
     }
 
-    if ($settings.defaultProfile -eq $script:PowerShellProfileGuid) {
-        Restore-JsonProperty -Object $settings -Name 'defaultProfile' -Snapshot $State.Snapshot.DefaultProfile
+    $managedRoot = [ordered]@{
+        defaultProfile = $script:PowerShellProfileGuid
+        # Sem valor padrao proprio do instalador (nunca escritas por Merge-TerminalSettings);
+        # $null significa "esperado ausente" ate que ManagedRootValues (gravado pelo app) diga o contrario.
+        language = $null
+        startOnUserLogin = $null
+        firstWindowPreference = $null
+        windowingBehavior = $null
+        launchMode = $null
+        centerOnLaunch = $null
+        initialPosition = $null
+        initialCols = $null
+        initialRows = $null
+    }
+    if ($null -ne $State.PSObject.Properties['ManagedRootValues'] -and $null -ne $State.ManagedRootValues) {
+        foreach ($name in @($managedRoot.Keys)) {
+            $managedProperty = $State.ManagedRootValues.PSObject.Properties[$name]
+            if ($null -ne $managedProperty) {
+                $managedRoot[$name] = $managedProperty.Value
+            }
+        }
+    }
+    $rootSnapshot = if ($null -ne $State.Snapshot.PSObject.Properties['Root']) { $State.Snapshot.Root } else { $null }
+    foreach ($name in @($managedRoot.Keys)) {
+        $currentProperty = $settings.PSObject.Properties[$name]
+        if ($null -eq $currentProperty -or -not (Test-JsonEquivalent $currentProperty.Value $managedRoot[$name])) {
+            continue
+        }
+        $snapshotName = $script:TerminalRootManagedNames[$name]
+        $rootEntry = if ($null -ne $rootSnapshot -and $null -ne $rootSnapshot.PSObject.Properties[$snapshotName]) {
+            $rootSnapshot.$snapshotName
+        } elseif ($name -eq 'defaultProfile') {
+            # Estado legado, gravado antes de Snapshot.Root existir.
+            $State.Snapshot.DefaultProfile
+        } else {
+            # Sem snapshot: a chave so pode ter sido criada pelo app depois da instalacao.
+            [pscustomobject]@{ Exists = $false; Value = $null }
+        }
+        Restore-JsonProperty -Object $settings -Name $name -Snapshot $rootEntry
     }
 
     $managedDefaults = [ordered]@{

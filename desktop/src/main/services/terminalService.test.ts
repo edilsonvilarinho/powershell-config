@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultSettings, emptyTerminalProfileAdvanced, emptyTerminalProfileAppearance, type TerminalProfileConfig } from '../../shared/settings.js';
+import { defaultSettings, emptyTerminalProfileAdvanced, emptyTerminalProfileAppearance, emptyTerminalStartup, type AppSettings, type TerminalProfileConfig } from '../../shared/settings.js';
 import type { AppPaths } from './paths.js';
 import { sha256 } from './fileService.js';
 import { TerminalService } from './terminalService.js';
@@ -382,6 +382,152 @@ describe('TerminalService', () => {
       const parsed = JSON.parse(updated) as { profiles: { list: Array<{ font: Record<string, unknown> }> } };
 
       expect(parsed.profiles.list[0].font.features).toEqual({ ss01: 1 });
+    });
+  });
+
+  describe('chaves de raiz (Inicialização)', () => {
+    const startup = (overrides: Partial<AppSettings['terminalStartup']> = {}): AppSettings['terminalStartup'] =>
+      ({ ...emptyTerminalStartup, ...overrides });
+
+    it('não escreve nenhuma chave de raiz na configuração neutra', () => {
+      const paths = createPaths('{ "profiles": { "defaults": {} } }');
+      const updated = new TerminalService(paths).buildContent(defaultSettings);
+      const parsed = JSON.parse(updated) as Record<string, unknown>;
+
+      for (const key of ['defaultProfile', 'language', 'startOnUserLogin', 'firstWindowPreference', 'windowingBehavior', 'launchMode', 'centerOnLaunch', 'initialPosition', 'initialCols', 'initialRows']) {
+        expect(parsed[key]).toBeUndefined();
+      }
+    });
+
+    it('preserva comentário e propriedade desconhecida ao gravar chaves de raiz', () => {
+      const paths = createPaths(`{
+        // comentário do usuário
+        "theme": "dark",
+        "profiles": { "defaults": { "opacity": 99 } },
+      }`);
+      const updated = new TerminalService(paths).buildContent({
+        ...defaultSettings,
+        terminalStartup: startup({ launchMode: 'maximized' }),
+      });
+
+      expect(updated).toContain('// comentário do usuário');
+      expect(updated).toContain('"theme": "dark"');
+      expect(updated).toContain('"launchMode": "maximized"');
+    });
+
+    it('grava todas as chaves de raiz gerenciadas', () => {
+      const paths = createPaths('{ "theme": "dark", "profiles": { "defaults": { "opacity": 99 } } }');
+      const service = new TerminalService(paths);
+      const settings = {
+        ...defaultSettings,
+        terminalStartup: startup({
+          defaultProfile: '{11111111-1111-1111-1111-111111111111}',
+          language: 'pt-BR',
+          startOnUserLogin: true,
+          firstWindowPreference: 'persistedWindowLayout' as const,
+          windowingBehavior: 'useExisting' as const,
+          launchMode: 'maximized' as const,
+          centerOnLaunch: true,
+          initialPosition: '10,20',
+          initialCols: 140,
+          initialRows: 40,
+        }),
+      };
+
+      const parsed = JSON.parse(service.buildContent(settings)) as Record<string, unknown>;
+
+      expect(parsed.theme).toBe('dark');
+      expect(parsed.defaultProfile).toBe('{11111111-1111-1111-1111-111111111111}');
+      expect(parsed.language).toBe('pt-BR');
+      expect(parsed.startOnUserLogin).toBe(true);
+      expect(parsed.firstWindowPreference).toBe('persistedWindowLayout');
+      expect(parsed.windowingBehavior).toBe('useExisting');
+      expect(parsed.launchMode).toBe('maximized');
+      expect(parsed.centerOnLaunch).toBe(true);
+      expect(parsed.initialPosition).toBe('10,20');
+      expect(parsed.initialCols).toBe(140);
+      expect(parsed.initialRows).toBe(40);
+    });
+
+    it('remove a chave de raiz que o app gerenciava quando o campo volta a null, sem tocar em profiles', () => {
+      const paths = createPaths('{ "profiles": { "defaults": {}, "list": [{ "guid": "{wsl-guid}", "name": "Ubuntu" }] } }');
+      const service = new TerminalService(paths);
+      const managed = startup({ launchMode: 'focus', initialCols: 100 });
+      fs.writeFileSync(paths.terminalSettingsPath, service.buildContent({ ...defaultSettings, terminalStartup: managed }), 'utf8');
+
+      const cleared = service.buildContent(defaultSettings, [], managed);
+      const parsed = JSON.parse(cleared) as { launchMode?: unknown; initialCols?: unknown; profiles: { list: Array<Record<string, unknown>> } };
+
+      expect(parsed.launchMode).toBeUndefined();
+      expect(parsed.initialCols).toBeUndefined();
+      expect(parsed.profiles.list).toHaveLength(1);
+      expect(parsed.profiles.list[0].name).toBe('Ubuntu');
+    });
+
+    it('não apaga chaves de raiz definidas fora do app quando o campo nunca foi gerenciado', () => {
+      const paths = createPaths('{ "defaultProfile": "{externo}", "launchMode": "fullscreen", "initialCols": 90 }');
+      const parsed = JSON.parse(new TerminalService(paths).buildContent(defaultSettings, [], emptyTerminalStartup)) as Record<string, unknown>;
+
+      expect(parsed.defaultProfile).toBe('{externo}');
+      expect(parsed.launchMode).toBe('fullscreen');
+      expect(parsed.initialCols).toBe(90);
+    });
+
+    it('nunca remove defaultProfile, mesmo depois de tê-lo gerenciado', () => {
+      const paths = createPaths('{ "defaultProfile": "{instalador}" }');
+      const service = new TerminalService(paths);
+      const managed = startup({ defaultProfile: '{escolhido}' });
+      fs.writeFileSync(paths.terminalSettingsPath, service.buildContent({ ...defaultSettings, terminalStartup: managed }), 'utf8');
+
+      const cleared = service.buildContent(defaultSettings, [], managed);
+      expect((JSON.parse(cleared) as { defaultProfile?: unknown }).defaultProfile).toBe('{escolhido}');
+    });
+
+    it('é idempotente ao reaplicar as mesmas chaves de raiz', () => {
+      const paths = createPaths('{}');
+      const service = new TerminalService(paths);
+      const settings = { ...defaultSettings, terminalStartup: startup({ launchMode: 'maximized', initialRows: 30 }) };
+
+      const first = service.buildContent(settings);
+      fs.writeFileSync(paths.terminalSettingsPath, first, 'utf8');
+      const second = service.buildContent(settings);
+
+      expect(JSON.parse(second)).toEqual(JSON.parse(first));
+    });
+
+    it('listProfiles reúne settings.json e fragmento gerenciado sem duplicar guid', () => {
+      const paths = createPaths(`{
+        "profiles": { "list": [
+          { "guid": "{b-guid}", "name": "Git Bash" },
+          { "guid": "{a-guid}", "name": "Ubuntu", "source": "Windows.Terminal.Wsl", "hidden": true }
+        ] }
+      }`);
+      const fragmentPath = path.join(paths.installRoot, 'fragment.json');
+      fs.writeFileSync(fragmentPath, '{ "profiles": [{ "guid": "{c-guid}", "name": "PowerShell 7" }, { "guid": "{B-GUID}", "name": "Duplicado" }] }', 'utf8');
+      fs.writeFileSync(paths.statePath, JSON.stringify({ TerminalFragment: { Path: fragmentPath } }), 'utf8');
+
+      const profiles = new TerminalService(paths).listProfiles();
+
+      expect(profiles.map((profile) => profile.name)).toEqual(['Git Bash', 'PowerShell 7', 'Ubuntu']);
+      expect(profiles.find((profile) => profile.name === 'Ubuntu')).toMatchObject({ hidden: true, source: 'Windows.Terminal.Wsl' });
+      expect(profiles.find((profile) => profile.name === 'Git Bash')).toMatchObject({ hidden: false, source: null });
+    });
+
+    it('updateInstallerState grava ManagedRootValues e omite defaultProfile quando não gerenciado', () => {
+      const paths = createPaths('{}');
+      fs.writeFileSync(paths.statePath, JSON.stringify({ Terminal: {}, ManagedConfig: {} }), 'utf8');
+      const service = new TerminalService(paths);
+
+      const neutral = JSON.parse(service.updateInstallerState('{}', defaultSettings) as string);
+      expect(neutral.Terminal.ManagedRootValues).not.toHaveProperty('defaultProfile');
+      expect(neutral.Terminal.ManagedRootValues.launchMode).toBeNull();
+
+      const managed = JSON.parse(service.updateInstallerState('{}', {
+        ...defaultSettings,
+        terminalStartup: startup({ defaultProfile: '{escolhido}', launchMode: 'maximized' }),
+      }) as string);
+      expect(managed.Terminal.ManagedRootValues.defaultProfile).toBe('{escolhido}');
+      expect(managed.Terminal.ManagedRootValues.launchMode).toBe('maximized');
     });
   });
 });

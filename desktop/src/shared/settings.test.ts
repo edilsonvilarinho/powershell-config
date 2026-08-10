@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultSettings, emptyTerminalProfileAdvanced, emptyTerminalProfileAppearance, migrateSettings, settingsSchema } from './settings.js';
+import { defaultSettings, emptyTerminalProfileAdvanced, emptyTerminalProfileAppearance, emptyTerminalStartup, migrateSettings, settingsSchema } from './settings.js';
 
 describe('settingsSchema', () => {
   it('aceita os padrões versionados', () => {
@@ -26,14 +26,14 @@ describe('settingsSchema', () => {
     delete legacyV1.help;
     delete legacyV1.customizations;
     const migrated = migrateSettings(legacyV1);
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.help).toEqual(defaultSettings.help);
     expect(migrated.aliases).toEqual(defaultSettings.aliases);
     expect(migrated.customizations).toEqual(defaultSettings.customizations);
   });
 
   it('rejeita versão desconhecida em vez de presumir migração', () => {
-    expect(() => migrateSettings({ ...defaultSettings, schemaVersion: 6 })).toThrow(/não suportada/);
+    expect(() => migrateSettings({ ...defaultSettings, schemaVersion: 7 })).toThrow(/não suportada/);
   });
 
   it('aceita customizações versionadas e limita aliases a nomes de comando', () => {
@@ -103,7 +103,7 @@ describe('settingsSchema', () => {
     };
 
     const migrated = migrateSettings(legacyV2);
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.customizations.aliases[0].description).toBe('');
     expect(migrated.customizations.functions[0].description).toBe('');
     expect(() => settingsSchema.parse(migrated)).toThrow(/descrição/);
@@ -145,7 +145,7 @@ describe('settingsSchema', () => {
     delete terminalV3.scrollbarState;
 
     const migrated = migrateSettings(legacyV3);
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.terminal.foreground).toBeNull();
     expect(migrated.terminal.background).toBeNull();
     expect(migrated.terminal.selectionBackground).toBeNull();
@@ -161,8 +161,49 @@ describe('settingsSchema', () => {
     delete legacyV4.terminalProfiles;
 
     const migrated = migrateSettings(legacyV4);
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.terminalProfiles).toEqual([]);
+  });
+
+  it('migra settings v5 injetando terminalStartup neutro', () => {
+    const legacyV5 = structuredClone(defaultSettings) as unknown as Record<string, unknown>;
+    legacyV5.schemaVersion = 5;
+    delete legacyV5.terminalStartup;
+
+    const migrated = migrateSettings(legacyV5);
+    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.terminalStartup).toEqual(emptyTerminalStartup);
+    expect(migrated.terminalStartup.defaultProfile).toBeNull();
+  });
+
+  it('rejeita valores inválidos nas configurações de inicialização do terminal', () => {
+    const base = defaultSettings;
+    expect(() => settingsSchema.parse({ ...base, terminalStartup: { ...base.terminalStartup, initialPosition: '10;20' } })).toThrow(/x,y/);
+    expect(() => settingsSchema.parse({ ...base, terminalStartup: { ...base.terminalStartup, launchMode: 'janela' } })).toThrow();
+    expect(() => settingsSchema.parse({ ...base, terminalStartup: { ...base.terminalStartup, initialCols: 0 } })).toThrow();
+    expect(() => settingsSchema.parse({ ...base, terminalStartup: { ...base.terminalStartup, initialRows: 12.5 } })).toThrow();
+    expect(() => settingsSchema.parse({ ...base, terminalStartup: { ...base.terminalStartup, windowingBehavior: 'useOther' } })).toThrow();
+    expect(() => settingsSchema.parse({ ...base, terminalStartup: { ...base.terminalStartup, desconhecido: true } })).toThrow();
+  });
+
+  it('aceita as configurações de inicialização válidas e null explícito', () => {
+    const customized = {
+      ...defaultSettings,
+      terminalStartup: {
+        defaultProfile: '{574e775e-4f2a-5b96-ac1e-a2962a402336}',
+        language: 'pt-BR',
+        startOnUserLogin: true,
+        firstWindowPreference: 'persistedWindowLayout' as const,
+        windowingBehavior: 'useAnyExisting' as const,
+        launchMode: 'maximizedFocus' as const,
+        centerOnLaunch: false,
+        initialPosition: ',100',
+        initialCols: 120,
+        initialRows: 30,
+      },
+    };
+    expect(settingsSchema.parse(customized).terminalStartup).toEqual(customized.terminalStartup);
+    expect(settingsSchema.parse(defaultSettings).terminalStartup).toEqual(emptyTerminalStartup);
   });
 
   it('rejeita perfis de terminal com id, guid ou nome duplicados', () => {

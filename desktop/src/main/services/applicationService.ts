@@ -96,6 +96,7 @@ export class ApplicationService {
       themes: this.themeService.list(),
       colorSchemes: this.terminalService.listColorSchemes(),
       activeColorSchemeColors: this.terminalService.getColorSchemeColors(settings.terminal.colorScheme),
+      terminalProfileChoices: this.terminalService.listProfiles(),
       diagnostics,
       nativeAliases,
       appVersion: app.getVersion(),
@@ -148,6 +149,7 @@ export class ApplicationService {
     });
     this.validateTerminalDefaults(nextSettings);
     this.validateTerminalProfiles(nextSettings);
+    this.validateTerminalStartup(nextSettings);
 
     await this.themeService.preview(nextSettings.prompt.themeId);
     await this.validateManagedProfileSyntax();
@@ -158,6 +160,7 @@ export class ApplicationService {
     const nextTerminalContent = this.terminalService.buildContent(
       nextSettings,
       currentSettings.terminalProfiles.map((profile) => profile.guid),
+      currentSettings.terminalStartup,
     );
     const nextStateContent = this.terminalService.updateInstallerState(nextTerminalContent, nextSettings, nextThemeContent);
     const backupRoot = path.join(this.paths.backupDirectory, new Date().toISOString().replace(/[:.]/g, '-'));
@@ -413,6 +416,7 @@ export class ApplicationService {
     if (validation.issues[0]) throw new Error(`Customização importada inválida: ${validation.issues[0].message}`);
     this.validateTerminalDefaults(settings, { imported: true });
     this.validateTerminalProfiles(settings, { imported: true });
+    this.validateTerminalStartup(settings, { imported: true });
     await this.validateManagedProfileSyntax();
     await this.validateGeneratedProfileSyntax(buildCustomProfile(settings));
   }
@@ -450,6 +454,27 @@ export class ApplicationService {
       if (icon && icon.kind === 'file' && !fs.existsSync(icon.path)) {
         throw new Error(`O ícone${prefix} "${icon.path}" do perfil "${profile.name}" não foi encontrado. Escolha outro arquivo.`);
       }
+    }
+  }
+
+  /** `defaultProfile` do Windows Terminal aceita GUID ou nome. Aceita também um perfil criado no
+   * mesmo apply (ainda ausente do settings.json do Terminal), por isso `settings.terminalProfiles`
+   * entra na lista de candidatos. */
+  private validateTerminalStartup(settings: AppSettings, options?: { imported?: boolean }): void {
+    const prefix = options?.imported ? ' importado' : '';
+    const { defaultProfile } = settings.terminalStartup;
+    if (defaultProfile === null) return;
+    const known = new Set<string>();
+    for (const profile of this.terminalService.listProfiles()) {
+      known.add(profile.guid.toLowerCase());
+      known.add(profile.name.toLowerCase());
+    }
+    for (const profile of settings.terminalProfiles) {
+      known.add(profile.guid.toLowerCase());
+      known.add(profile.name.toLowerCase());
+    }
+    if (!known.has(defaultProfile.toLowerCase())) {
+      throw new Error(`O perfil padrão${prefix} "${defaultProfile}" não existe no Windows Terminal. Escolha outro perfil.`);
     }
   }
 
