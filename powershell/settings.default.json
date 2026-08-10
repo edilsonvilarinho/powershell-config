@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "ui": {
     "theme": "dark"
   },
@@ -69,5 +69,17 @@
     "padding": null,
     "scrollbarState": null
   },
-  "terminalProfiles": []
+  "terminalProfiles": [],
+  "terminalStartup": {
+    "defaultProfile": null,
+    "language": null,
+    "startOnUserLogin": null,
+    "firstWindowPreference": null,
+    "windowingBehavior": null,
+    "launchMode": null,
+    "centerOnLaunch": null,
+    "initialPosition": null,
+    "initialCols": null,
+    "initialRows": null
+  }
 }

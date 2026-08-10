@@ -111,6 +111,93 @@ try {
     Assert-True -Condition ($null -eq $colorOverrideRestored.profiles.defaults.PSObject.Properties['cursorColor']) -Message 'rollback deve remover override de cor adicionado pelo app depois da instalacao'
     Assert-True -Condition ($null -eq $colorOverrideRestored.profiles.defaults.PSObject.Properties['experimental.retroTerminalEffect']) -Message 'rollback deve remover a chave experimental.retroTerminalEffect (nome literal com ponto, nao objeto aninhado)'
 
+    # Chaves de raiz da tela "Inicializacao" do app (ManagedRootValues + Snapshot.Root).
+    $rootPath = Join-Path $tempRoot 'settings-root.json'
+    $rootBackup = Join-Path $tempRoot 'settings-root.original.json'
+    Save-JsonFile -Path $rootPath -Value $originalSettings
+    Copy-Item -LiteralPath $rootPath -Destination $rootBackup
+    $rootMerge = Merge-TerminalSettings -Path $rootPath
+    Assert-Equal -Expected $script:PowerShellProfileGuid -Actual (Read-JsonFile -Path $rootPath).defaultProfile -Message 'sem ManagedRootValues o merge deve manter o perfil padrao do instalador'
+    Assert-Equal -Expected '{custom-profile}' -Actual $rootMerge.Snapshot.Root.DefaultProfile.Value -Message 'Snapshot.Root deve preservar o defaultProfile anterior a instalacao'
+    Assert-Equal -Expected $false -Actual ([bool]$rootMerge.Snapshot.Root.LaunchMode.Exists) -Message 'Snapshot.Root deve registrar launchMode como ausente'
+
+    # O usuario escolheu outro perfil padrao no app; o upgrade nao pode reverter essa escolha.
+    $rootManagedValues = [pscustomobject]@{
+        defaultProfile = '{escolhido-no-app}'
+        language = $null
+        startOnUserLogin = $null
+        firstWindowPreference = $null
+        windowingBehavior = $null
+        launchMode = 'maximized'
+        centerOnLaunch = $null
+        initialPosition = $null
+        initialCols = 140
+        initialRows = $null
+    }
+    $rootUpgradeMerge = Merge-TerminalSettings -Path $rootPath -ManagedRootValues $rootManagedValues
+    Assert-Equal -Expected '{escolhido-no-app}' -Actual (Read-JsonFile -Path $rootPath).defaultProfile -Message 'merge deve honrar o defaultProfile gravado pelo app'
+
+    # Rollback: remove as chaves de raiz que o app criou e devolve o defaultProfile anterior.
+    $rootAfterApp = Read-JsonFile -Path $rootPath
+    Set-JsonProperty -Object $rootAfterApp -Name 'launchMode' -Value 'maximized'
+    Set-JsonProperty -Object $rootAfterApp -Name 'initialCols' -Value 140
+    Save-JsonFile -Path $rootPath -Value $rootAfterApp
+    Restore-TerminalSettings -Path $rootPath -State ([pscustomobject]@{
+        OriginalExisted = $true
+        BackupPath = $rootBackup
+        Snapshot = $rootMerge.Snapshot
+        PostInstallHash = $rootUpgradeMerge.PostInstallHash
+        ManagedRootValues = $rootManagedValues
+    })
+    $rootRestored = Read-JsonFile -Path $rootPath
+    Assert-Equal -Expected '{custom-profile}' -Actual $rootRestored.defaultProfile -Message 'rollback deve restaurar o defaultProfile anterior mesmo quando o app o alterou'
+    Assert-True -Condition ($null -eq $rootRestored.PSObject.Properties['launchMode']) -Message 'rollback deve remover launchMode gravado pelo app'
+    Assert-True -Condition ($null -eq $rootRestored.PSObject.Properties['initialCols']) -Message 'rollback deve remover initialCols gravado pelo app'
+
+    # Chave de raiz definida pelo usuario e nao gerenciada pelo app nao pode ser removida no rollback.
+    $rootUserPath = Join-Path $tempRoot 'settings-root-user.json'
+    $rootUserBackup = Join-Path $tempRoot 'settings-root-user.original.json'
+    $rootUserSettings = [pscustomobject]@{
+        defaultProfile = '{custom-profile}'
+        launchMode = 'fullscreen'
+        profiles = [pscustomobject]@{ defaults = [pscustomobject]@{}; list = @() }
+    }
+    Save-JsonFile -Path $rootUserPath -Value $rootUserSettings
+    Copy-Item -LiteralPath $rootUserPath -Destination $rootUserBackup
+    $rootUserMerge = Merge-TerminalSettings -Path $rootUserPath
+    $rootUserAfter = Read-JsonFile -Path $rootUserPath
+    Set-JsonProperty -Object $rootUserAfter -Name 'theme' -Value 'light'
+    Save-JsonFile -Path $rootUserPath -Value $rootUserAfter
+    Restore-TerminalSettings -Path $rootUserPath -State ([pscustomobject]@{
+        OriginalExisted = $true
+        BackupPath = $rootUserBackup
+        Snapshot = $rootUserMerge.Snapshot
+        PostInstallHash = $rootUserMerge.PostInstallHash
+    })
+    Assert-Equal -Expected 'fullscreen' -Actual (Read-JsonFile -Path $rootUserPath).launchMode -Message 'rollback nao pode remover chave de raiz definida fora do app'
+
+    # Estado legado, gravado antes de Snapshot.Root existir.
+    $legacyRootPath = Join-Path $tempRoot 'settings-root-legacy.json'
+    $legacyRootBackup = Join-Path $tempRoot 'settings-root-legacy.original.json'
+    Save-JsonFile -Path $legacyRootPath -Value $originalSettings
+    Copy-Item -LiteralPath $legacyRootPath -Destination $legacyRootBackup
+    $legacyMerge = Merge-TerminalSettings -Path $legacyRootPath
+    $legacySnapshot = $legacyMerge.Snapshot
+    $legacySnapshot.Remove('Root')
+    $legacyAfter = Read-JsonFile -Path $legacyRootPath
+    Set-JsonProperty -Object $legacyAfter -Name 'launchMode' -Value 'focus'
+    Save-JsonFile -Path $legacyRootPath -Value $legacyAfter
+    Restore-TerminalSettings -Path $legacyRootPath -State ([pscustomobject]@{
+        OriginalExisted = $true
+        BackupPath = $legacyRootBackup
+        Snapshot = [pscustomobject]$legacySnapshot
+        PostInstallHash = $legacyMerge.PostInstallHash
+        ManagedRootValues = [pscustomobject]@{ launchMode = 'focus' }
+    })
+    $legacyRestored = Read-JsonFile -Path $legacyRootPath
+    Assert-Equal -Expected '{custom-profile}' -Actual $legacyRestored.defaultProfile -Message 'rollback sem Snapshot.Root deve usar o slot legado DefaultProfile'
+    Assert-True -Condition ($null -eq $legacyRestored.PSObject.Properties['launchMode']) -Message 'rollback sem Snapshot.Root deve remover chave criada pelo app'
+
     $jsoncPath = Join-Path $tempRoot 'settings-jsonc.json'
     Write-Utf8NoBomFile -Path $jsoncPath -Content "{ // comentario`n  `"profiles`": { `"defaults`": {}, },`n}"
     Merge-TerminalSettings -Path $jsoncPath | Out-Null
@@ -235,7 +322,7 @@ try {
     Assert-True -Condition (-not ($profileSource -match 'Invoke-WebRequest|Install-Module|Install-PSResource')) -Message 'perfil distribuido nao pode instalar ou baixar dependencias na abertura'
     Assert-True -Condition (-not ($profileSource -match '\bj8\b|\bj21\b|JAVA_HOME')) -Message 'perfil distribuido nao pode referenciar aliases Java desativados'
     Assert-True -Condition ($profileSource.Contains("Join-Path `$PSScriptRoot 'config\custom-profile.ps1'")) -Message 'perfil deve carregar customizacoes somente pelo caminho gerenciado fixo'
-    Assert-True -Condition ($profileSource.Contains('schemaVersion -notin @(1, 2, 3, 4, 5)')) -Message 'perfil deve aceitar settings migrados ate o schema v5'
+    Assert-True -Condition ($profileSource.Contains('schemaVersion -notin @(1, 2, 3, 4, 5, 6)')) -Message 'perfil deve aceitar settings migrados ate o schema v6'
     Assert-True -Condition ($profileSource.Contains('$global:PowerShellConfigCustomHelpEntries')) -Message 'helper deve consumir metadados das customizacoes geradas'
     foreach ($aliasName in @('g', 'vim', 'grep', 'tig', 'less', 'ls', 'dir', 'll')) {
         $registrationPattern = if ($aliasName -in @('ls', 'dir', 'll')) {
@@ -270,7 +357,7 @@ try {
     }
 
     $defaultSettings = Get-Content -LiteralPath (Join-Path $repoRoot 'powershell\settings.default.json') -Raw | ConvertFrom-Json -ErrorAction Stop
-    Assert-Equal -Expected 5 -Actual $defaultSettings.schemaVersion -Message 'configuracao visual deve iniciar no schema v5'
+    Assert-Equal -Expected 6 -Actual $defaultSettings.schemaVersion -Message 'configuracao visual deve iniciar no schema v6'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.aliases).Count -Message 'aliases personalizados devem iniciar vazios'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.functions).Count -Message 'funcoes personalizadas devem iniciar vazias'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.customizations.commands).Count -Message 'comandos personalizados devem iniciar vazios'
@@ -285,6 +372,10 @@ try {
     Assert-Equal -Expected $false -Actual $defaultSettings.terminal.retroTerminalEffect -Message 'efeito retro deve iniciar desativado'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.terminal.fontFeatures).Count -Message 'recursos de fonte devem iniciar vazios'
     Assert-Equal -Expected 0 -Actual @($defaultSettings.terminal.fontAxes).Count -Message 'eixos de fonte devem iniciar vazios'
+    Assert-True -Condition ($null -ne $defaultSettings.PSObject.Properties['terminalStartup']) -Message 'configuracao visual deve declarar o bloco terminalStartup'
+    foreach ($startupKey in @('defaultProfile', 'language', 'startOnUserLogin', 'firstWindowPreference', 'windowingBehavior', 'launchMode', 'centerOnLaunch', 'initialPosition', 'initialCols', 'initialRows')) {
+        Assert-True -Condition ($null -ne $defaultSettings.terminalStartup.PSObject.Properties[$startupKey] -and $null -eq $defaultSettings.terminalStartup.$startupKey) -Message "configuracao de inicializacao deve iniciar sem valor: $startupKey"
+    }
 
     $desktopPackage = Get-Content -LiteralPath (Join-Path $repoRoot 'desktop\package.json') -Raw | ConvertFrom-Json -ErrorAction Stop
     Assert-Equal -Expected $versionMatch.Groups[1].Value -Actual $desktopPackage.version -Message 'versao base do desktop e version.nsh devem permanecer alinhadas'

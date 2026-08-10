@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { settingsSchema, type AppSettings, type BootstrapData, type Diagnostics, type ImportPreview, type TerminalColorSchemeColors, type ThemeInfo, type UserState } from '../shared/settings';
+import { settingsSchema, type AppSettings, type BootstrapData, type Diagnostics, type ImportPreview, type TerminalColorSchemeColors, type TerminalProfileChoice, type ThemeInfo, type UserState } from '../shared/settings';
 import { buildHelpPreview } from '../shared/help';
 import { Customizations, type CustomizationDisplayIssue } from './Customizations';
 import { Status, Toggle, Field, ColorOverrideField, TerminalPreview, TagValueListEditor } from './ui';
 import { TerminalProfilesSection, TerminalAppearanceFields, terminalDefaultsAsAppearance } from './TerminalProfiles';
+import { TerminalStartupSection } from './TerminalStartup';
 
 type Section = 'overview' | 'themes' | 'profile' | 'terminal' | 'settings';
 
@@ -182,13 +183,14 @@ function Profile({ draft, onDraft, nativeAliases, issues }: { draft: AppSettings
   );
 }
 
-type TerminalTab = 'defaults' | 'profiles';
+type TerminalTab = 'defaults' | 'profiles' | 'startup';
 
-function TerminalSettings({ draft, onDraft, schemes, activeColorSchemeColors }: {
+function TerminalSettings({ draft, onDraft, schemes, activeColorSchemeColors, profileChoices }: {
   draft: AppSettings;
   onDraft: (settings: AppSettings) => void;
   schemes: string[];
   activeColorSchemeColors: TerminalColorSchemeColors | null;
+  profileChoices: TerminalProfileChoice[];
 }) {
   const [tab, setTab] = useState<TerminalTab>('defaults');
   const t = draft.terminal;
@@ -201,6 +203,7 @@ function TerminalSettings({ draft, onDraft, schemes, activeColorSchemeColors }: 
       <div className="segmented terminal-subnav">
         <button className={tab === 'defaults' ? 'active' : ''} onClick={() => setTab('defaults')}>Padrões</button>
         <button className={tab === 'profiles' ? 'active' : ''} onClick={() => setTab('profiles')}>Perfis{draft.terminalProfiles.length > 0 ? ` (${draft.terminalProfiles.length})` : ''}</button>
+        <button className={tab === 'startup' ? 'active' : ''} onClick={() => setTab('startup')}>Inicialização</button>
       </div>
 
       {tab === 'defaults' && (
@@ -225,6 +228,15 @@ function TerminalSettings({ draft, onDraft, schemes, activeColorSchemeColors }: 
           onChange={(profiles) => onDraft({ ...draft, terminalProfiles: profiles })}
           schemes={schemes}
           activeColorSchemeColors={activeColorSchemeColors}
+        />
+      )}
+
+      {tab === 'startup' && (
+        <TerminalStartupSection
+          startup={draft.terminalStartup}
+          onChange={(startup) => onDraft({ ...draft, terminalStartup: startup })}
+          profileChoices={profileChoices}
+          draftProfiles={draft.terminalProfiles}
         />
       )}
     </section>
@@ -511,7 +523,7 @@ export function App() {
         {section === 'themes' && <Themes themes={data.themes} draft={draft} onDraft={setDraft} onImport={() => void importTheme()} preview={preview} previewBusy={previewBusy} favorites={new Set(data.userState.favoriteThemeIds)} favoritesBusy={favoritesBusy} onToggleFavorite={(id) => void toggleFavorite(id)} />}
         {section === 'profile' && hasUnsavedCustomizations && <p className="unsaved-customizations-banner" role="alert">Você adicionou funções, aliases ou comandos que ainda não foram salvos. Eles existem só nesta tela — clique em <strong>Revisar e aplicar</strong>, no rodapé, para gravá-los de verdade. Se o app fechar antes disso, essas alterações serão perdidas.</p>}
         {section === 'profile' && <Profile draft={draft} onDraft={setDraft} nativeAliases={data.nativeAliases} issues={customizationIssues} />}
-        {section === 'terminal' && <TerminalSettings draft={draft} onDraft={setDraft} schemes={data.colorSchemes} activeColorSchemeColors={data.activeColorSchemeColors} />}
+        {section === 'terminal' && <TerminalSettings draft={draft} onDraft={setDraft} schemes={data.colorSchemes} activeColorSchemeColors={data.activeColorSchemeColors} profileChoices={data.terminalProfileChoices} />}
         {section === 'settings' && <SettingsPage draft={draft} onDraft={setDraft} diagnostics={data.diagnostics} backupLabel={data.backups[0] ? `Último: ${new Date(data.backups[0].createdAt).toLocaleString('pt-BR')}` : 'Nenhum backup'} onOpenTerminal={() => void runAction(() => window.powershellConfig.openTerminal())} onOpenLogs={() => void runAction(() => window.powershellConfig.openLogs())} onExport={() => void exportConfiguration()} onImport={() => void inspectConfigurationImport()} onRestore={() => void restore()} onRestoreBackup={() => void restoreBackup()} />}
       </main>
       <div className="apply-bar"><span>{dirty ? `${changes.length} alteração(ões) pendente(s)` : 'Configuração sincronizada'}</span><button className="ghost" disabled={!dirty || busy} onClick={() => setDraft(cloneSettings(data.settings))}>Descartar</button><button className="primary" disabled={!dirty || busy} onClick={() => void reviewDraft()}>Revisar e aplicar</button></div>

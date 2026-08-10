@@ -249,7 +249,17 @@ try {
                 PostInstallHash = $mergeResult.PostInstallHash
             }
         } else {
-            $mergeResult = Merge-TerminalSettings -Path $terminalSettingsPath
+            # Backfill unico: instalacoes anteriores a Snapshot.Root nao tem como reverter as chaves
+            # de raiz que o app venha a gravar. Captura o estado atual antes do merge sobrescrever.
+            if ($null -ne $state.Terminal.Snapshot -and $null -eq $state.Terminal.Snapshot.PSObject.Properties['Root']) {
+                $currentTerminalSettings = if (Test-Path -LiteralPath $terminalSettingsPath) { Read-JsonFile -Path $terminalSettingsPath } else { $null }
+                if ($null -ne $currentTerminalSettings) {
+                    Set-JsonProperty -Object $state.Terminal.Snapshot -Name 'Root' -Value (Get-TerminalRootSnapshot -Object $currentTerminalSettings)
+                    Write-InstallerLog -Stage 'terminal.settings' -Message 'backfill=Snapshot.Root'
+                }
+            }
+            $managedRootValues = if ($null -ne $state.Terminal.PSObject.Properties['ManagedRootValues']) { $state.Terminal.ManagedRootValues } else { $null }
+            $mergeResult = Merge-TerminalSettings -Path $terminalSettingsPath -ManagedRootValues $managedRootValues
             $state.Terminal.Path = $terminalSettingsPath
             $state.Terminal.PostInstallHash = $mergeResult.PostInstallHash
         }

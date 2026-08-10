@@ -236,8 +236,28 @@ const customizationsSchema = z.object({
   }
 });
 
+/** Configurações da tela "Inicialização" do Windows Terminal. Todas moram na **raiz** do
+ * settings.json (irmãs de `profiles`), não em `profiles.defaults` - por isso não cabem no grupo
+ * `terminal`, que mapeia 1:1 para `profiles.defaults`.
+ * `null` em qualquer campo significa "não gerenciado pelo app": a chave correspondente é removida
+ * do settings.json e o Windows Terminal volta a usar o próprio padrão. */
+export const terminalStartupSchema = z.object({
+  defaultProfile: z.string().trim().min(1).max(128).nullable(),
+  language: z.string().trim().min(2).max(35).nullable(),
+  startOnUserLogin: z.boolean().nullable(),
+  firstWindowPreference: z.enum(['defaultProfile', 'persistedWindowLayout']).nullable(),
+  windowingBehavior: z.enum(['useNew', 'useExisting', 'useAnyExisting']).nullable(),
+  launchMode: z.enum(['default', 'maximized', 'fullscreen', 'focus', 'maximizedFocus']).nullable(),
+  centerOnLaunch: z.boolean().nullable(),
+  initialPosition: z.string().regex(/^-?\d*,-?\d*$/, 'Use o formato "x,y" (qualquer coordenada pode ficar vazia).').nullable(),
+  initialCols: z.number().int().min(1).max(999).nullable(),
+  initialRows: z.number().int().min(1).max(999).nullable(),
+}).strict();
+
+export type TerminalStartupConfig = z.infer<typeof terminalStartupSchema>;
+
 export const editableSettingsSchema = z.object({
-  schemaVersion: z.literal(5),
+  schemaVersion: z.literal(6),
   ui: z.object({
     theme: z.enum(['dark', 'light']),
   }).strict(),
@@ -304,6 +324,7 @@ export const editableSettingsSchema = z.object({
     scrollbarState: z.enum(['visible', 'hidden', 'always']).nullable(),
   }).strict(),
   terminalProfiles: z.array(terminalProfileSchema).max(50),
+  terminalStartup: terminalStartupSchema,
 }).strict();
 
 export const settingsSchema = editableSettingsSchema.superRefine((settings, context) => {
@@ -344,8 +365,23 @@ export const settingsSchema = editableSettingsSchema.superRefine((settings, cont
 
 export type AppSettings = z.infer<typeof editableSettingsSchema>;
 
+/** Neutro: nenhuma chave de raiz é escrita no settings.json do Windows Terminal enquanto o usuário
+ * não escolher um valor no app. Mantém o comportamento do instalador intacto por padrão. */
+export const emptyTerminalStartup: TerminalStartupConfig = {
+  defaultProfile: null,
+  language: null,
+  startOnUserLogin: null,
+  firstWindowPreference: null,
+  windowingBehavior: null,
+  launchMode: null,
+  centerOnLaunch: null,
+  initialPosition: null,
+  initialCols: null,
+  initialRows: null,
+};
+
 export const defaultSettings: AppSettings = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   ui: { theme: 'dark' },
   startup: { enabled: true },
   prompt: { enabled: true, themeId: 'builtin:takuya', themeName: 'takuya' },
@@ -396,6 +432,7 @@ export const defaultSettings: AppSettings = {
     scrollbarState: null,
   },
   terminalProfiles: [],
+  terminalStartup: emptyTerminalStartup,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -414,12 +451,12 @@ function mergeKnownDefaults(defaultValue: unknown, candidate: unknown): unknown 
 }
 
 export function migrateSettings(input: unknown): AppSettings {
-  if (!isRecord(input) || ![1, 2, 3, 4, 5].includes(input.schemaVersion as number)) {
+  if (!isRecord(input) || ![1, 2, 3, 4, 5, 6].includes(input.schemaVersion as number)) {
     throw new Error('Versão de settings.json ausente ou não suportada.');
   }
   let migratedRecord: Record<string, unknown>;
   if (input.schemaVersion === 1) {
-    migratedRecord = { ...input, schemaVersion: 5, customizations: defaultSettings.customizations };
+    migratedRecord = { ...input, schemaVersion: 6, customizations: defaultSettings.customizations };
   } else if (input.schemaVersion === 2) {
     const customizations = isRecord(input.customizations) ? input.customizations : {};
     const addDescription = (entries: unknown): unknown[] => Array.isArray(entries)
@@ -429,7 +466,7 @@ export function migrateSettings(input: unknown): AppSettings {
       : [];
     migratedRecord = {
       ...input,
-      schemaVersion: 5,
+      schemaVersion: 6,
       customizations: {
         ...customizations,
         aliases: addDescription(customizations.aliases),
@@ -437,9 +474,10 @@ export function migrateSettings(input: unknown): AppSettings {
       },
     };
   } else {
-    // schemaVersion 3, 4 ou 5: mergeKnownDefaults abaixo já injeta os campos novos ausentes
-    // (terminal.foreground/background/... entre v3->v4, terminalProfiles entre v4->v5) com seus neutros.
-    migratedRecord = { ...input, schemaVersion: 5 };
+    // schemaVersion 3, 4, 5 ou 6: mergeKnownDefaults abaixo já injeta os campos novos ausentes
+    // (terminal.foreground/background/... entre v3->v4, terminalProfiles entre v4->v5,
+    // terminalStartup entre v5->v6) com seus neutros.
+    migratedRecord = { ...input, schemaVersion: 6 };
   }
   return editableSettingsSchema.parse(mergeKnownDefaults(defaultSettings, migratedRecord));
 }
@@ -469,6 +507,15 @@ export interface TerminalColorSchemeColors {
   selectionBackground: string | null;
 }
 
+/** Perfil visível no settings.json do Windows Terminal (nativo, dinâmico, do fragmento gerenciado
+ * ou criado pelo app). Alimenta o combo "Perfil padrão" da sub-aba Inicialização. */
+export interface TerminalProfileChoice {
+  guid: string;
+  name: string;
+  hidden: boolean;
+  source: string | null;
+}
+
 export interface BootstrapData {
   settings: AppSettings;
   userState: UserState;
@@ -476,6 +523,7 @@ export interface BootstrapData {
   themes: ThemeInfo[];
   colorSchemes: string[];
   activeColorSchemeColors: TerminalColorSchemeColors | null;
+  terminalProfileChoices: TerminalProfileChoice[];
   diagnostics: Diagnostics;
   nativeAliases: NativeAliasInfo[];
   appVersion: string;

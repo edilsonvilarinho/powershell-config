@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { dialog } from 'electron';
 import { applyEdits, modify, parse, type ParseError } from 'jsonc-parser';
-import type { AppSettings, TerminalColorSchemeColors, TerminalProfileConfig } from '../../shared/settings.js';
+import type { AppSettings, TerminalColorSchemeColors, TerminalProfileChoice, TerminalProfileConfig } from '../../shared/settings.js';
 import type { AppPaths } from './paths.js';
 import { hashFile, readUtf8, sha256 } from './fileService.js';
 
@@ -238,6 +238,49 @@ export class TerminalService {
       .sort((left, right) => left.localeCompare(right));
   }
 
+  /** Aceita as duas formas de declarar perfis: `profiles.list` (settings.json do usuário) e
+   * `profiles` como array (fragmentos do Windows Terminal). */
+  private static collectProfiles(content: string): TerminalProfileChoice[] {
+    let parsed: { profiles?: unknown };
+    try {
+      parsed = parseJsonc(content) as { profiles?: unknown };
+    } catch {
+      return [];
+    }
+    const list = Array.isArray(parsed.profiles)
+      ? parsed.profiles
+      : isRecord(parsed.profiles) && Array.isArray(parsed.profiles.list) ? parsed.profiles.list : [];
+    return list
+      .filter(isRecord)
+      .filter((profile): profile is Record<string, unknown> => typeof profile.guid === 'string' && typeof profile.name === 'string')
+      .map((profile) => ({
+        guid: profile.guid as string,
+        name: profile.name as string,
+        hidden: profile.hidden === true,
+        source: typeof profile.source === 'string' ? profile.source : null,
+      }));
+  }
+
+  /** Perfis declarados no settings.json do usuário mais os do fragmento gerenciado, deduplicados por
+   * guid (o settings.json vence, pois é onde o Windows Terminal materializa os perfis dinâmicos).
+   * Usado só para popular o combo "Perfil padrão" - nenhuma escrita depende desta lista. */
+  listProfiles(): TerminalProfileChoice[] {
+    const byGuid = new Map<string, TerminalProfileChoice>();
+    for (const profile of TerminalService.collectProfiles(this.readContent())) {
+      byGuid.set(profile.guid.toLowerCase(), profile);
+    }
+    const fragmentPath = this.managedFragmentPath();
+    if (fragmentPath) {
+      const fragmentContent = readUtf8(fragmentPath);
+      if (fragmentContent) {
+        for (const profile of TerminalService.collectProfiles(fragmentContent)) {
+          if (!byGuid.has(profile.guid.toLowerCase())) byGuid.set(profile.guid.toLowerCase(), profile);
+        }
+      }
+    }
+    return [...byGuid.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
   private findSchemeColors(content: string, name: string): TerminalColorSchemeColors | null {
     let parsed: { schemes?: unknown };
     try {
@@ -411,14 +454,52 @@ export class TerminalService {
     return content;
   }
 
+  /** Edita as chaves da tela "Inicialização", que ficam na **raiz** do settings.json (irmãs de
+   * `profiles`). Ao contrário dos overrides de perfil, estas chaves **não** nascem do app: o
+   * instalador escreve `defaultProfile` e o usuário pode ter definido as demais à mão. Por isso
+   * `null` significa "não gerenciado" e nunca apaga nada por conta própria - a chave só é removida
+   * quando o app deixou de gerenciar um campo que ele mesmo gravava (`previous` não nulo).
+   * `defaultProfile` nunca é removido: o Windows Terminal exige a chave e o valor anterior a
+   * qualquer edição do app só é conhecido pelo desinstalador (`Snapshot.Root`). */
+  private applyStartupEdits(content: string, s: AppSettings['terminalStartup'], previous: AppSettings['terminalStartup'] | null): string {
+    const rootValues: Array<[keyof AppSettings['terminalStartup'], unknown]> = [
+      ['defaultProfile', s.defaultProfile],
+      ['language', s.language],
+      ['startOnUserLogin', s.startOnUserLogin],
+      ['firstWindowPreference', s.firstWindowPreference],
+      ['windowingBehavior', s.windowingBehavior],
+      ['launchMode', s.launchMode],
+      ['centerOnLaunch', s.centerOnLaunch],
+      ['initialPosition', s.initialPosition],
+      ['initialCols', s.initialCols],
+      ['initialRows', s.initialRows],
+    ];
+    for (const [key, value] of rootValues) {
+      if (value !== null) {
+        content = setValue(content, [key], value);
+      } else if (key !== 'defaultProfile' && previous !== null && previous[key] !== null) {
+        content = removeValue(content, [key]);
+      }
+    }
+    return content;
+  }
+
   /** `previousProfileGuids`: guids de `AppSettings.terminalProfiles` geridos antes desta mudança
    * (lidos do `currentSettings` pelo chamador). A diferença entre eles e `settings.terminalProfiles`
-   * é exatamente o que precisa ser removido de `profiles.list`. */
-  buildContent(settings: AppSettings, previousProfileGuids: readonly string[] = []): string {
+   * é exatamente o que precisa ser removido de `profiles.list`.
+   * `previousStartup`: `terminalStartup` anterior, pela mesma razão - identifica quais chaves de raiz
+   * o app gerenciava e passou a não gerenciar. */
+  buildContent(
+    settings: AppSettings,
+    previousProfileGuids: readonly string[] = [],
+    previousStartup: AppSettings['terminalStartup'] | null = null,
+  ): string {
     let content = this.readContent();
     parseJsonc(content);
     content = this.applyDefaultsEdits(content, settings.terminal);
     content = this.applyProfilesListEdits(content, settings.terminalProfiles, previousProfileGuids);
+    // Depois da lista: `defaultProfile` pode apontar para um perfil criado neste mesmo apply.
+    content = this.applyStartupEdits(content, settings.terminalStartup, previousStartup);
     parseJsonc(content);
     return content;
   }
@@ -427,11 +508,32 @@ export class TerminalService {
     parseJsonc(content);
   }
 
+  /** Contrato lido por `Merge-TerminalSettings`/`Restore-TerminalSettings` (installer/scripts/Common.ps1)
+   * para as chaves de raiz. Para as 9 chaves opcionais, `null` significa "esperado ausente" - mesma
+   * semântica de `ManagedValues`. `defaultProfile` é a exceção: o instalador tem um valor próprio
+   * (o GUID do perfil PowerShell 7), então a chave é **omitida** quando o app não a gerencia, e a
+   * ausência da propriedade é o sinal de "mantenha o padrão do instalador". */
+  private buildManagedRootValues(startup: AppSettings['terminalStartup']): Record<string, unknown> {
+    const managed: Record<string, unknown> = {
+      language: startup.language,
+      startOnUserLogin: startup.startOnUserLogin,
+      firstWindowPreference: startup.firstWindowPreference,
+      windowingBehavior: startup.windowingBehavior,
+      launchMode: startup.launchMode,
+      centerOnLaunch: startup.centerOnLaunch,
+      initialPosition: startup.initialPosition,
+      initialCols: startup.initialCols,
+      initialRows: startup.initialRows,
+    };
+    if (startup.defaultProfile !== null) managed.defaultProfile = startup.defaultProfile;
+    return managed;
+  }
+
   updateInstallerState(terminalContent: string, settings: AppSettings, themeContent?: Buffer): string | null {
     if (!fs.existsSync(this.paths.statePath)) return null;
     const raw = fs.readFileSync(this.paths.statePath, 'utf8');
     const state = JSON.parse(raw) as {
-      Terminal?: Record<string, unknown> & { PostInstallHash?: string; ManagedValues?: unknown };
+      Terminal?: Record<string, unknown> & { PostInstallHash?: string; ManagedValues?: unknown; ManagedRootValues?: unknown };
       ManagedConfig?: Record<string, unknown> & { ThemeInstalledHash?: string };
     };
     if (!state.Terminal) return null;
@@ -460,6 +562,7 @@ export class TerminalService {
       padding: settings.terminal.padding,
       scrollbarState: settings.terminal.scrollbarState,
     };
+    state.Terminal.ManagedRootValues = this.buildManagedRootValues(settings.terminalStartup);
     if (themeContent && state.ManagedConfig) {
       state.ManagedConfig.ThemeInstalledHash = sha256(themeContent).toUpperCase();
     }

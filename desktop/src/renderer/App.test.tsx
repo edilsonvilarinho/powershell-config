@@ -10,6 +10,10 @@ const bootstrap: BootstrapData = {
   themes: [{ id: 'builtin:takuya', name: 'takuya', source: 'builtin' }],
   colorSchemes: ['One Half Dark (modded)'],
   activeColorSchemeColors: null,
+  terminalProfileChoices: [
+    { guid: '{574e775e-4f2a-5b96-ac1e-a2962a402336}', name: 'PowerShell 7', hidden: false, source: null },
+    { guid: '{gitbash-guid}', name: 'Git Bash', hidden: false, source: null },
+  ],
   diagnostics: {
     powershellVersion: '7.5.2',
     ohMyPoshVersion: '29.11.0',
@@ -68,7 +72,7 @@ describe('App', () => {
     expect(await screen.findByText('Seu PowerShell, sob controle.')).toBeInTheDocument();
     expect(screen.getByText('7.5.2')).toBeInTheDocument();
     expect(screen.getByText('29.11.0')).toBeInTheDocument();
-    expect(screen.getByText(/schema v5 válido/)).toBeInTheDocument();
+    expect(screen.getByText(/schema v6 válido/)).toBeInTheDocument();
   });
 
   it('renderiza as cinco telas principais pela navegação lateral', async () => {
@@ -137,6 +141,24 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apagar perfil' }));
     expect(window.confirm).toHaveBeenCalled();
     expect(screen.getByText('Nenhum perfil gerenciado pelo app ainda.')).toBeInTheDocument();
+  });
+
+  it('edita a inicialização do Windows Terminal e lista os perfis disponíveis como perfil padrão', async () => {
+    installApi();
+    render(<App />);
+    await screen.findByText('Seu PowerShell, sob controle.');
+    fireEvent.click(screen.getByRole('button', { name: /Windows Terminal$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Inicialização' }));
+
+    const defaultProfile = screen.getByLabelText(/^Perfil aberto pelo botão/);
+    expect(within(defaultProfile as HTMLSelectElement).getByRole('option', { name: 'PowerShell 7' })).toBeInTheDocument();
+    expect(within(defaultProfile as HTMLSelectElement).getByRole('option', { name: 'Git Bash' })).toBeInTheDocument();
+    fireEvent.change(defaultProfile, { target: { value: '{gitbash-guid}' } });
+
+    fireEvent.change(screen.getByLabelText(/^Parâmetros de inicialização/), { target: { value: 'maximized' } });
+    fireEvent.change(screen.getByLabelText(/^Colunas na inicialização/), { target: { value: '140' } });
+
+    expect(screen.getByText('3 alteração(ões) pendente(s)')).toBeInTheDocument();
   });
 
   it('navega para configurações e alterna para o tema claro no rascunho', async () => {
